@@ -21,12 +21,12 @@ CLI options:
 ```text
 --file PATH       Session log path. Overrides the configured sessions_file.
 --config PATH     Configuration path. Default: ~/.config/aisema/config
-COUNT|ALL         Optional discovery selector. Omit it to use only the configured session log.
+COUNT|ALL         Optional discovery selector. Omit it to use the configured session log as the base document; the CLI still refreshes active sessions and adds active discovered entries.
 ```
 
 `COUNT` must be a positive integer. `all` is case-insensitive and discovers all sessions available through installed supported harnesses. A numeric selector discovers the globally newest `COUNT` sessions across the selected installed harnesses.
 
-The CLI loads the session document first, optionally adds discovered entries, loads configuration, and starts curses through `run_tui()`.
+The CLI parses arguments, loads configuration, chooses the session path, loads the session document, performs selector-driven discovery or active-session refresh, and starts curses through `run_tui()`.
 
 ## 3. Repository architecture
 
@@ -108,7 +108,7 @@ Owns the curses application:
 
 ## 4. Session file format
 
-The default session file is `~/.config/session-manager/sessions.txt`. The `sessions_file` configuration key overrides this path, and `--file` takes precedence over the configuration.
+The session file is selected by the `sessions_file` configuration key, and `--file` takes precedence over the configuration.
 
 ### 4.1 Lines
 
@@ -316,7 +316,6 @@ Normalizes invalid `display_command`, `show_throwaway`, and `show_done` values t
 Current defaults:
 
 ```ini
-sessions_file=~/.config/session-manager/sessions.txt
 display_command=full
 show_throwaway=false
 show_done=true

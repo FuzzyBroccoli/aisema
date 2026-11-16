@@ -683,7 +683,7 @@ class SessionManagerTests(unittest.TestCase):
             self.assertEqual(config.get("date_format"), "%d.%m.%Y")
             self.assertEqual(
                 config.sessions_file,
-                Path.home() / ".config" / "session-manager" / "sessions.txt",
+                Path.home() / ".config" / "aisema" / "sessions.txt",
             )
             text = path.read_text(encoding="utf-8")
             self.assertIn("# sessions_file=", text)

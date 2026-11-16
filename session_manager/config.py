@@ -6,7 +6,7 @@ from typing import Dict
 
 from .model import DEFAULT_DATE_FORMAT
 
-DEFAULT_SESSIONS_FILE = Path.home() / ".config" / "session-manager" / "sessions.txt"
+DEFAULT_SESSIONS_FILE = Path.home() / ".config" / "aisema" / "sessions.txt"
 
 DEFAULTS: Dict[str, str] = {
     "sessions_file": str(DEFAULT_SESSIONS_FILE),

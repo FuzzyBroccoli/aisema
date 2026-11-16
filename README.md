@@ -39,9 +39,8 @@ The project uses Python’s standard library and has no repository dependency fi
 ./aisema
 ```
 
-The default paths are:
+The default configuration path is:
 
-- Session file: `~/.config/session-manager/sessions.txt`
 - Configuration: `~/.config/aisema/config`
 
 Use explicit paths when running from another directory:
