@@ -15,6 +15,7 @@ DEFAULTS: Dict[str, str] = {
     "show_done": "true",
     "date_format": DEFAULT_DATE_FORMAT,
     "show_last_used_date": "false",
+    "color_active": "yellow",
     "color_runner": "pink",
     "color_hash": "light_gray",
     "color_command": "blue",

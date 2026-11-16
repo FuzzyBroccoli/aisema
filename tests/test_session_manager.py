@@ -449,6 +449,32 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(_color_value("pink")[0], curses.COLOR_MAGENTA)
         self.assertEqual(_color_value("light_gray")[0], curses.COLOR_BLACK)
         self.assertEqual(_color_value("dark_gray")[0], curses.COLOR_BLACK)
+    def test_color_setup_exercises_every_tui_color_role(self) -> None:
+        app = object.__new__(SessionApp)
+        app.config = Config(DEFAULTS, Path("config"))
+        app.color_pairs = {}
+        roles = (
+            "active",
+            "runner",
+            "hash",
+            "command",
+            "description",
+            "done",
+            "throwaway",
+            "selected",
+            "prompt",
+            "error",
+        )
+        with patch("session_manager.tui.curses.start_color"):
+            with patch("session_manager.tui.curses.use_default_colors"):
+                with patch("session_manager.tui.curses.init_pair"):
+                    with patch(
+                        "session_manager.tui.curses.color_pair",
+                        side_effect=lambda number: number,
+                    ):
+                        app._setup_colors()
+        self.assertEqual(set(app.color_pairs), set(roles))
+
 
     def test_tmux_window_name_uses_description_prefix(self) -> None:
         self.assertEqual(tmux._window_name("Short description"), "Short")
