@@ -679,27 +679,27 @@ class SessionManagerTests(unittest.TestCase):
             self.assertEqual(config.values, DEFAULTS)
             self.assertEqual(
                 {key: config.get(key) for key in (
-                    "color_active",
+                    "color_letters",
                     "color_runner",
-                    "color_hash",
-                    "color_command",
+                    "color_runner_sessionid",
+                    "color_runner_parameters",
                     "color_description",
-                    "color_done",
-                    "color_throwaway",
+                    "color_description_done",
+                    "color_description_throwaway",
                     "color_selected",
-                    "color_prompt",
+                    "color_statusline",
                     "color_error",
                 )},
                 {
-                    "color_active": "yellow",
+                    "color_letters": "yellow",
                     "color_runner": "pink",
-                    "color_hash": "light_gray",
-                    "color_command": "blue",
+                    "color_runner_sessionid": "light_gray",
+                    "color_runner_parameters": "blue",
                     "color_description": "white",
-                    "color_done": "green",
-                    "color_throwaway": "blue",
+                    "color_description_done": "green",
+                    "color_description_throwaway": "blue",
                     "color_selected": "cyan",
-                    "color_prompt": "bright_cyan",
+                    "color_statusline": "bright_cyan",
                     "color_error": "red",
                 },
             )
@@ -728,7 +728,7 @@ class SessionManagerTests(unittest.TestCase):
             path.write_text("display_command=none\n", encoding="utf-8")
             config = load_config(path)
             self.assertTrue(config.hide_commands)
-            self.assertIn("# color_command=blue", path.read_text(encoding="utf-8"))
+            self.assertIn("# color_runner_parameters=blue", path.read_text(encoding="utf-8"))
     def test_show_done_false_filters_done_sessions(self) -> None:
         class Window:
             def getmaxyx(self) -> tuple[int, int]:

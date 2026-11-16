@@ -331,11 +331,22 @@ class SessionApp:
             curses.use_default_colors()
         except curses.error:
             return
-        for number, role in enumerate(
-            ("active", "runner", "hash", "command", "description", "done", "throwaway", "selected", "prompt", "error"),
+        for number, (role, config_key) in enumerate(
+            (
+                ("active", "color_letters"),
+                ("runner", "color_runner"),
+                ("hash", "color_runner_sessionid"),
+                ("command", "color_runner_parameters"),
+                ("description", "color_description"),
+                ("done", "color_description_done"),
+                ("throwaway", "color_description_throwaway"),
+                ("selected", "color_selected"),
+                ("prompt", "color_statusline"),
+                ("error", "color_error"),
+            ),
             start=1,
         ):
-            color, bold = _color_value(self.config.get(f"color_{role}"))
+            color, bold = _color_value(self.config.get(config_key))
             try:
                 curses.init_pair(number, color, -1)
                 self.color_pairs[role] = curses.color_pair(number) | bold
