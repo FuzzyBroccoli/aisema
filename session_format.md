@@ -43,7 +43,7 @@ With no positional selector, startup uses only `../sessions.txt`. An optional po
 For discovered sessions, the default description is the latest user prompt from the session record when available; otherwise the harness title or session name is used.
 
 
-The `show_throwaway` setting controls whether throwaway entries are visible. Hidden throwaway entries are also excluded from searches until enabled.
+The `show_throwaway` setting controls whether throwaway entries are visible. Hidden throwaway entries are also excluded from searches until enabled. `show_done=false` filters entries whose description ends with ` Done.` from the session list; the default is `true`.
 When `show_last_used_date=true`, the list inserts the last-used timestamp (`%d.%m.%Y` by default, local time) between the command column and description. `date_format` accepts a Python `strftime` format string, and `:date` toggles this display live; `:date on` and `:date off` select an explicit state without changing the saved configuration.
 
 The configuration file is `~/.config/aisema/config`. On first run it is created with every supported setting commented out at its default value. Missing settings are appended as commented defaults without replacing existing settings. Current settings are:
@@ -51,6 +51,7 @@ The configuration file is `~/.config/aisema/config`. On first run it is created 
 ```ini
 # display_command=full
 # show_throwaway=false
+# show_done=true
 # date_format=%d.%m.%Y
 # show_last_used_date=false
 # color_active=yellow

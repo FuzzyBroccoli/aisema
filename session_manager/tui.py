@@ -344,6 +344,8 @@ class SessionApp:
             self.sort_descending,
             getattr(self, "first_sort_mode", "status"),
         )
+        if not self.config.show_done:
+            entries = [entry for entry in entries if not entry.done]
         if not self.config.show_throwaway:
             entries = [
                 entry

@@ -148,6 +148,7 @@ Configuration is stored at `~/.config/aisema/config` by default. Supported setti
 ```ini
 display_command=full
 show_throwaway=false
+show_done=true
 date_format=%d.%m.%Y
 show_last_used_date=false
 color_active=yellow
@@ -167,6 +168,8 @@ color_error=red
 - `full`: display the complete resume command.
 - `short`: display the runner and final hyphen-separated session-ID component.
 - `none`: hide the command column.
+
+Set `show_done=false` to remove entries whose description ends with ` Done.` from the session list. The default is `true`.
 
 Use `C` or `:config` to edit settings interactively. Configuration changes are written atomically and reloaded live.
 

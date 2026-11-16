@@ -306,16 +306,16 @@ The loader:
 - Treats `#` and `;` entries as comments.
 - Appends missing known defaults as comments.
 - Merges active values over `DEFAULTS`.
-- Normalizes invalid `display_command` and `show_throwaway` values to their defaults.
+Normalizes invalid `display_command`, `show_throwaway`, and `show_done` values to their defaults.
 
 Current defaults:
 
 ```ini
 display_command=full
 show_throwaway=false
+show_done=true
 date_format=%d.%m.%Y
 show_last_used_date=false
-color_active=yellow
 color_runner=pink
 color_hash=light_gray
 color_command=blue
@@ -333,7 +333,7 @@ Properties:
 - `display_command=none` hides the command column; descriptions begin after the status slots and optional date column.
 - Boolean properties recognize `1`, `true`, `yes`, and `on` as true; corresponding false forms are accepted for the loader/UI behavior.
 - `show_throwaway=false` hides throwaway rows unless temporarily overridden by a local toggle.
-- `show_last_used_date=true` displays the date column and triggers timestamp refresh.
+- `show_done=false` hides rows whose description ends with ` Done.`.
 - `date_format` controls date rendering only; it does not alter sorting, which uses raw nanoseconds.
 
 The config editor lists every known default key. It supports:

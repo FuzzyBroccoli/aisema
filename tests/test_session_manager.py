@@ -468,26 +468,57 @@ class SessionManagerTests(unittest.TestCase):
             config = load_config(path)
             self.assertEqual(config.values, DEFAULTS)
             self.assertFalse(config.show_throwaway)
+            self.assertTrue(config.show_done)
             self.assertFalse(config.show_last_used_date)
             self.assertEqual(config.get("date_format"), "%d.%m.%Y")
             text = path.read_text(encoding="utf-8")
             self.assertIn("# show_throwaway=false", text)
+            self.assertIn("# show_done=true", text)
             self.assertIn("# show_last_used_date=false", text)
 
             path.write_text(
-                "display_command=short\nshow_throwaway=true\nshow_last_used_date=true\n"
+                "display_command=short\nshow_throwaway=true\nshow_done=false\nshow_last_used_date=true\n"
                 "date_format=%Y-%m-%d\n",
                 encoding="utf-8",
             )
             config = load_config(path)
             self.assertTrue(config.short_commands)
             self.assertTrue(config.show_throwaway)
+            self.assertFalse(config.show_done)
             self.assertTrue(config.show_last_used_date)
             self.assertEqual(config.get("date_format"), "%Y-%m-%d")
             path.write_text("display_command=none\n", encoding="utf-8")
             config = load_config(path)
             self.assertTrue(config.hide_commands)
             self.assertIn("# color_command=blue", path.read_text(encoding="utf-8"))
+    def test_show_done_false_filters_done_sessions(self) -> None:
+        class Window:
+            def getmaxyx(self) -> tuple[int, int]:
+                return (24, 80)
+
+        done = parse_line("omp --resume done Finished Done.", 1)
+        current = parse_line("omp --resume current Current", 2)
+        assert done is not None
+        assert current is not None
+
+        class Document:
+            entries = [done, current]
+
+        app = object.__new__(SessionApp)
+        app.stdscr = Window()
+        app.document = Document()
+        app.config = Config({**DEFAULTS, "show_done": "false"}, Path("config"))
+        app.first_sort_mode = "status"
+        app.sort_mode = "date"
+        app.sort_descending = False
+        app.query = ""
+        app.visible = []
+        app.selected = 0
+        app.scroll_top = 0
+        app.throwaway_visible = set()
+        app.rebuild()
+        self.assertEqual(app.visible, [current])
+
 
     def test_date_command_toggles_live_display(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

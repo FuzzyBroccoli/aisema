@@ -9,9 +9,9 @@ from .model import DEFAULT_DATE_FORMAT
 DEFAULTS: Dict[str, str] = {
     "display_command": "full",
     "show_throwaway": "false",
+    "show_done": "true",
     "date_format": DEFAULT_DATE_FORMAT,
     "show_last_used_date": "false",
-    "color_active": "yellow",
     "color_runner": "pink",
     "color_hash": "light_gray",
     "color_command": "blue",
@@ -43,6 +43,10 @@ class Config:
     @property
     def show_throwaway(self) -> bool:
         return self.get("show_throwaway").lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def show_done(self) -> bool:
+        return self.get("show_done").lower() in {"1", "true", "yes", "on"}
 
     @property
     def show_last_used_date(self) -> bool:
@@ -104,4 +108,6 @@ def load_config(path: Path) -> Config:
         merged["display_command"] = DEFAULTS["display_command"]
     if merged["show_throwaway"].lower() not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
         merged["show_throwaway"] = DEFAULTS["show_throwaway"]
+    if merged["show_done"].lower() not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+        merged["show_done"] = DEFAULTS["show_done"]
     return Config(merged, path)
