@@ -78,6 +78,7 @@ Each normal entry must use one of the recognized command shapes:
 
 ```text
 <runner> [--flags] --resume <id> [--flags] <description>
+<runner> [--flags] --resume=<id> [--flags] <description>
 <runner> [--flags] --session <id> [--flags] <description>
 goose [--flags] session resume --name <id> [--flags] <description>
 ```

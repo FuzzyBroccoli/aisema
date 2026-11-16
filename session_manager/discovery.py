@@ -95,6 +95,8 @@ def _timestamp_ns(value: Any, fallback: int) -> int:
 
 
 def _resume_command(runner: str, session_id: str) -> str:
+    if runner == "cursor-agent":
+        return f"cursor-agent --resume={session_id}"
     if runner == "opencode":
         return f"opencode --session {session_id}"
     if runner == "goose":

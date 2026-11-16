@@ -13,12 +13,12 @@ DEFAULT_DATE_FORMAT = "%d.%m.%Y"
 
 _ENTRY_RE = re.compile(
     r"^(?P<command>"
-    r"(?:\S+(?:\s+--\S+)*\s+--resume\s+\S+(?:\s+--\S+)*"
-    r"|\S+(?:\s+--\S+)*\s+--session\s+\S+(?:\s+--\S+)*"
-    r"|goose(?:\s+--\S+)*\s+session\s+resume\s+--name\s+\S+(?:\s+--\S+)*)"
+    r"(?:\S+(?:\s+--\S+)*\s+--resume(?:\s+|=)\S+(?:\s+--\S+)*"
+    r"|\S+(?:\s+--\S+)*\s+--session(?:\s+|=)\S+(?:\s+--\S+)*"
+    r"|goose(?:\s+--\S+)*\s+session\s+resume\s+--name(?:\s+|=)\S+(?:\s+--\S+)*)"
     r")(?P<separator> +)(?P<description>.*)$"
 )
-_ID_RE = re.compile(r"(?:^|\s)(?:--resume|--session|--name)\s+(?P<id>\S+)")
+_ID_RE = re.compile(r"(?:^|\s)(?:--resume|--session|--name)(?:\s+|=)(?P<id>\S+)")
 
 
 @dataclass

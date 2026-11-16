@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from session_manager.config import Config, DEFAULTS, load_config
 from session_manager.config_editor import ConfigEditor
-from session_manager.discovery import _generic_json_session, discover_recent
+from session_manager.discovery import _generic_json_session, _resume_command, discover_recent
 from session_manager.model import parse_line
 from session_manager.process import ProcessMatch, find_process
 from session_manager.storage import load_document
@@ -916,13 +916,32 @@ class SessionManagerTests(unittest.TestCase):
             self.assertEqual([entry.session_id for entry in entries], ["omp-id", "copilot-id"])
             self.assertEqual(newest[0].command, "omp --resume omp-id")
 
+    def test_resume_command_formats(self) -> None:
+        self.assertEqual(_resume_command("copilot", "copilot-id"), "copilot --resume copilot-id")
+        self.assertEqual(_resume_command("agent", "agent-id"), "agent --resume agent-id")
+        self.assertEqual(
+            _resume_command("cursor-agent", "cursor-id"),
+            "cursor-agent --resume=cursor-id",
+        )
+        self.assertEqual(_resume_command("omp", "omp-id"), "omp --resume omp-id")
+        self.assertEqual(
+            _resume_command("opencode", "opencode-id"),
+            "opencode --session opencode-id",
+        )
+        self.assertEqual(
+            _resume_command("goose", "goose-id"),
+            "goose session resume --name goose-id",
+        )
+
     def test_parse_supported_resume_command_shapes(self) -> None:
+        cursor = parse_line("cursor-agent --resume=cursor_1 Cursor", 1)
+        assert cursor is not None
+        self.assertEqual(cursor.session_id, "cursor_1")
         self.assertEqual(parse_line("opencode --session ses_1 OpenCode", 1).session_id, "ses_1")
         self.assertEqual(
             parse_line("goose session resume --name goose_1 Goose", 1).session_id,
             "goose_1",
         )
-
     def test_parse_resume_commands_with_option_flags(self) -> None:
         before = parse_line("omp --yolo --resume abc --verbose Before and after", 1)
         assert before is not None

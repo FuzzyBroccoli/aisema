@@ -122,6 +122,7 @@ Recognized command patterns:
 
 ```text
 <runner> [--flag ...] --resume <session-id> [--flag ...]
+<runner> [--flag ...] --resume=<session-id> [--flag ...]
 <runner> [--flag ...] --session <session-id> [--flag ...]
 goose [--flag ...] session resume --name <session-id> [--flag ...]
 ```
@@ -143,6 +144,7 @@ The parser specifically supports the command shapes represented by `_ENTRY_RE`; 
 | `source` | `file`, `discovered`, or `temporary`. |
 | `active` | Whether a matching running process was found. |
 | `last_used_ns` | Last update time as Unix nanoseconds; `0` means unknown. |
+| `user_queries` | Ordered user prompts extracted from discovered session metadata for the `M` popup. |
 | `_dirty` | Internal flag indicating that serialization must be rebuilt. |
 
 Computed properties:
@@ -226,9 +228,10 @@ Only commands found by `shutil.which()` are considered installed for normal disc
 - ISO timestamps are accepted, including trailing `Z`.
 - Descriptions prefer the latest user prompt; title/name/description metadata is used as fallback.
 - Empty descriptions fall back to `<runner> session` where necessary.
-- Resume command generation is special-cased for OpenCode and Goose:
+- Resume command generation is special-cased for Cursor Agent, OpenCode, and Goose:
 
 ```text
+cursor-agent --resume=<id>
 opencode --session <id>
 goose session resume --name <id>
 <other-runner> --resume <id>
