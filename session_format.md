@@ -59,10 +59,10 @@ The configuration file is `~/.config/aisema/config`. On first run it is created 
 # color_hash=light_gray
 # color_command=blue
 # color_description=white
-# color_done=blue
-# color_throwaway=dark_gray
+# color_done=green
+# color_throwaway=blue
 # color_selected=cyan
-# color_prompt=yellow
+# color_prompt=bright_cyan
 # color_error=red
 ```
 
