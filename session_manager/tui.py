@@ -956,7 +956,7 @@ class SessionApp:
             "  D             toggle done marker",
             "  S             choose sort mode",
             "  C             open config",
-            "  X             toggle throwaway marker",
+            "  X/T           toggle throwaway marker",
             "  M             show description and user queries",
             "  N             start a new session",
             "  H             show help",
@@ -1078,7 +1078,7 @@ class SessionApp:
 
         footer_attr = self._attr("error" if self.message_is_error else "prompt")
         footer = self.message or "ready"
-        shortcuts = "F:find  E:edit  D:done  S:sort  C:config  X:throwaway  M:more  H:help  N:new session  Q:quit"
+        shortcuts = "F:find  E:edit  D:done  S:sort  C:config  X/T:throwaway  M:more  H:help  N:new session  Q:quit"
         _safe_addstr(self.stdscr, max(0, height - 2), 0, footer, max(1, width - 1), footer_attr)
         _safe_addstr(self.stdscr, max(0, height - 1), 0, shortcuts, max(1, width - 1), curses.A_DIM)
         self.stdscr.refresh()
@@ -1341,7 +1341,7 @@ class SessionApp:
                     self._set_message(f"sorted {layer} layer by {mode}")
             elif key in (ord("c"), ord("C")):
                 self._run_command(":config")
-            elif key in (ord("x"), ord("X")):
+            elif key in (ord("x"), ord("X"), ord("t"), ord("T")):
                 self._toggle_throwaway()
             elif key in (ord("m"), ord("M")):
                 self._show_more()

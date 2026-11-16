@@ -117,7 +117,7 @@ Tmux focus uses pane/window identifiers. Those identifiers are separate from the
 | `D` | Toggle the done marker. |
 | `S` | Choose a sort mode; press `S` in the popup to switch sort layers. |
 | `C` | Open the configuration editor. |
-| `X` | Toggle the throwaway marker. |
+| `X` / `T` | Toggle the throwaway marker. |
 | `M` | Show the full description and browse recorded user queries. Up first shows the latest query, then older queries; Down starts at the first query, then moves newer. Page Up/Down move by a screen, and Home/End jump to the first/last query; `q` or Escape closes the popup. |
 | `H` | Show help. |
 | `Enter` | Launch or focus the selected session. |

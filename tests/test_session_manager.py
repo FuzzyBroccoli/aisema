@@ -117,6 +117,43 @@ class SessionManagerTests(unittest.TestCase):
                         run_tui(document, Config(DEFAULTS, path))
             self.assertIn("Inspect this session", popup.drawn)
             self.assertIn("Latest question", popup.drawn)
+    def test_t_alias_toggles_throwaway_marker(self) -> None:
+        class Screen:
+            def __init__(self) -> None:
+                self.keys = iter([ord("t"), ord("q")])
+
+            def keypad(self, enabled: bool) -> None:
+                pass
+
+            def timeout(self, milliseconds: int) -> None:
+                pass
+
+            def getmaxyx(self) -> tuple[int, int]:
+                return (24, 80)
+
+            def erase(self) -> None:
+                pass
+
+            def addnstr(self, y: int, x: int, text: str, width: int, attr: int = 0) -> None:
+                pass
+
+            def refresh(self) -> None:
+                pass
+
+            def getch(self) -> int:
+                return next(self.keys)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.txt"
+            path.write_text("omp --resume throwaway Throwaway candidate\n", encoding="utf-8")
+            document = load_document(path)
+            entry = document.entries[0]
+            screen = Screen()
+            with patch("session_manager.tui.curses.wrapper", lambda callback: callback(screen)):
+                with patch("session_manager.tui.process.refresh_active"):
+                    run_tui(document, Config(DEFAULTS, path))
+            self.assertTrue(entry.throwaway)
+
 
 
     def test_parse_done_and_throwaway_markers(self) -> None:

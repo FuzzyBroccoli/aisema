@@ -365,7 +365,7 @@ Shortcuts are case-insensitive unless noted:
 | `D` | Toggle done marker. |
 | `S` | Choose a first- or second-layer sort mode from a popup; press `S` in the popup to switch layers. |
 | `C` | Open configuration editor. |
-| `X` | Toggle throwaway marker. |
+| `X` / `T` | Toggle throwaway marker. |
 | `M` | Show full description and recorded user queries; Up/Down/Page Up/Page Down/Home/End navigate queries, and `q`/Escape closes the popup. |
 | `H` | Show help. |
 | Enter | Launch or focus selected session. |
