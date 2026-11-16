@@ -65,7 +65,7 @@ class SessionManagerTests(unittest.TestCase):
                 with patch("session_manager.tui.process.refresh_active"):
                     run_tui(document, config)
         self.assertTrue(any(text.startswith(" sessions: ") for text in screen.drawn_text))
-    def test_m_opens_query_popup_repeated_m_pages_and_closes(self) -> None:
+    def test_m_opens_query_popup_repeated_m_moves_down_and_closes(self) -> None:
         class Screen:
             def __init__(self) -> None:
                 self.keys = iter([ord("m"), ord("q")])
@@ -94,7 +94,7 @@ class SessionManagerTests(unittest.TestCase):
         class Popup(Screen):
             def __init__(self) -> None:
                 super().__init__()
-                self.keys = iter([ord("m"), ord("m"), ord("m")])
+                self.keys = iter([ord("m"), ord("m"), ord("q")])
                 self.drawn: list[str] = []
 
             def addnstr(self, y: int, x: int, text: str, width: int, attr: int = 0) -> None:
@@ -108,7 +108,7 @@ class SessionManagerTests(unittest.TestCase):
             document = load_document(path)
             entry = parse_line("omp --resume inspect Inspect this session", 1)
             assert entry is not None
-            entry.user_queries = ["First question", "Latest question"]
+            entry.user_queries = ["First question", "Second question", "Latest question"]
             document.lines.append(entry)
             screen = Screen()
             popup = Popup()
@@ -117,7 +117,7 @@ class SessionManagerTests(unittest.TestCase):
                     with patch("session_manager.tui.process.refresh_active"):
                         run_tui(document, Config(DEFAULTS, path))
             self.assertIn("Inspect this session", popup.drawn)
-            self.assertIn("Latest question", popup.drawn)
+            self.assertIn("Second question", popup.drawn)
     def test_description_editor_cut_paste_shortcuts(self) -> None:
         class Screen:
             def __init__(self, keys: list[int]) -> None:

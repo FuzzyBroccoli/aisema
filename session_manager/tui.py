@@ -524,7 +524,7 @@ class SessionApp:
                 if key in (ord("m"), ord("M")):
                     if query_index is not None and query_index == len(queries) - 1:
                         return
-                    key = curses.KEY_NPAGE
+                    key = curses.KEY_DOWN
                 query_index = _inspection_query_index(
                     query_index,
                     len(queries),
