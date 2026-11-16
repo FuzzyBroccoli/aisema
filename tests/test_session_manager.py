@@ -155,6 +155,56 @@ class SessionManagerTests(unittest.TestCase):
             self.assertTrue(entry.throwaway)
 
 
+    def test_r_refresh_discovers_increasing_batches(self) -> None:
+        class Screen:
+            def __init__(self) -> None:
+                self.keys = iter([ord("r"), ord("r"), ord("q")])
+
+            def keypad(self, enabled: bool) -> None:
+                pass
+
+            def timeout(self, milliseconds: int) -> None:
+                pass
+
+            def getmaxyx(self) -> tuple[int, int]:
+                return (24, 80)
+
+            def erase(self) -> None:
+                pass
+
+            def addnstr(self, y: int, x: int, text: str, width: int, attr: int = 0) -> None:
+                pass
+
+            def refresh(self) -> None:
+                pass
+
+            def getch(self) -> int:
+                return next(self.keys)
+
+        discovered = [
+            parse_line(f"omp --resume id-{index} Session {index}", index)
+            for index in range(10)
+        ]
+        assert all(entry is not None for entry in discovered)
+        entries = [entry for entry in discovered if entry is not None]
+        calls: list[int] = []
+
+        def discover(count, runners):
+            calls.append(count)
+            return entries[:count]
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.txt"
+            document = load_document(path)
+            screen = Screen()
+            with patch("session_manager.tui.curses.wrapper", lambda callback: callback(screen)):
+                with patch("session_manager.tui.discover_recent", side_effect=discover):
+                    with patch("session_manager.tui.available_harnesses", return_value=("omp",)):
+                        with patch("session_manager.tui.process.refresh_active"):
+                            run_tui(document, Config(DEFAULTS, path))
+            self.assertEqual(calls, [5, 10])
+            self.assertEqual(len(document.ephemeral), 10)
+
 
     def test_parse_done_and_throwaway_markers(self) -> None:
         entry = parse_line("omp --resume abc-123 Work in progress", 1)

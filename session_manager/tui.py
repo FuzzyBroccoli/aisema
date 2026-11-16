@@ -317,6 +317,7 @@ class SessionApp:
         self.message = ""
         self.message_is_error = False
         self.last_active_refresh = 0.0
+        self.refresh_count = 0
         self.show_last_used_date = config.show_last_used_date
         self.color_pairs: dict[str, int] = {}
         self._setup_colors()
@@ -755,6 +756,25 @@ class SessionApp:
             if id(entry) in description_edits and self._save(entry):
                 description_edits.discard(id(entry))
                 baselines.pop(id(entry), None)
+    def _refresh_sessions(self) -> None:
+        self.refresh_count = getattr(self, "refresh_count", 0) + 5
+        current = self._selected_entry()
+        try:
+            discovered = discover_recent(
+                self.refresh_count,
+                runners=available_harnesses(),
+            )
+        except (OSError, ValueError) as exc:
+            self._set_message(f"refresh failed: {exc}", True)
+            return
+        self.document.add_discovered(discovered)
+        process.refresh_active(self.document.entries)
+        if self.show_last_used_date:
+            refresh_last_used(self.document.entries)
+        self.last_active_refresh = time.monotonic()
+        self.rebuild(current)
+        self._set_message(f"refreshed {self.refresh_count} sessions")
+
 
     def _new_session(self) -> None:
         harnesses = self._new_session_harnesses()
@@ -958,7 +978,7 @@ class SessionApp:
             "  C             open config",
             "  X/T           toggle throwaway marker",
             "  M             show description and user queries",
-            "  N             start a new session",
+            "  R             refresh; repeated presses discover 5 more sessions",
             "  H             show help",
             "",
             "Commands",
@@ -1078,7 +1098,7 @@ class SessionApp:
 
         footer_attr = self._attr("error" if self.message_is_error else "prompt")
         footer = self.message or "ready"
-        shortcuts = "F:find  E:edit  D:done  S:sort  C:config  X/T:throwaway  M:more  H:help  N:new session  Q:quit"
+        shortcuts = "F:find  E:edit  D:done  S:sort  C:config  X/T:throwaway  M:more  R:refresh  H:help  N:new session  Q:quit"
         _safe_addstr(self.stdscr, max(0, height - 2), 0, footer, max(1, width - 1), footer_attr)
         _safe_addstr(self.stdscr, max(0, height - 1), 0, shortcuts, max(1, width - 1), curses.A_DIM)
         self.stdscr.refresh()
@@ -1292,6 +1312,8 @@ class SessionApp:
             key = self.stdscr.getch()
             if key == -1:
                 continue
+            if key not in (ord("r"), ord("R")):
+                self.refresh_count = 0
             if self.config_editor is not None:
                 self._handle_config_key(key)
                 continue
@@ -1341,6 +1363,8 @@ class SessionApp:
                     self._set_message(f"sorted {layer} layer by {mode}")
             elif key in (ord("c"), ord("C")):
                 self._run_command(":config")
+            elif key in (ord("r"), ord("R")):
+                self._refresh_sessions()
             elif key in (ord("x"), ord("X"), ord("t"), ord("T")):
                 self._toggle_throwaway()
             elif key in (ord("m"), ord("M")):

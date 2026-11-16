@@ -367,6 +367,7 @@ Shortcuts are case-insensitive unless noted:
 | `C` | Open configuration editor. |
 | `X` / `T` | Toggle throwaway marker. |
 | `M` | Show full description and recorded user queries; Up/Down/Page Up/Page Down/Home/End navigate queries, and `q`/Escape closes the popup. |
+| `R` | Refresh discovery with 5 sessions initially; each consecutive press adds 5 to the requested count. |
 | `H` | Show help. |
 | Enter | Launch or focus selected session. |
 | `Q` | Quit. |
