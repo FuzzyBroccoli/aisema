@@ -118,8 +118,8 @@ Tmux focus uses pane/window identifiers. Those identifiers are separate from the
 | `S` | Choose a sort mode; press `S` in the popup to switch sort layers. |
 | `C` | Open the configuration editor. |
 | `X` / `T` | Toggle the throwaway marker. |
-| `M` | Show the full description and browse recorded user queries. Up first shows the latest query, then older queries; Down starts at the first query, then moves newer. Page Up/Down move by a screen, and Home/End jump to the first/last query; `q` or Escape closes the popup. |
-| `R` | Refresh discovery. The first press discovers 5 sessions; each consecutive press increases the requested count by 5. |
+| `M` | Show the full description and browse recorded user queries. Up first shows the latest query, then older queries; Down starts at the first query, then moves newer. Page Up/Down move by a screen. Press `M` again to page down; at the last query, `M` closes the popup. Home/End jump to the first/last query; `q` or Escape also closes the popup. |
+| `R` | Refresh discovery by requesting five sessions beyond the amount currently loaded in the session list. |
 | `H` | Show help. |
 | `Enter` | Launch or focus the selected session. |
 | `Q` | Quit. |

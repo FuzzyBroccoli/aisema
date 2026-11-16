@@ -369,8 +369,8 @@ Shortcuts are case-insensitive unless noted:
 | `S` | Choose a first- or second-layer sort mode from a popup; press `S` in the popup to switch layers. |
 | `C` | Open configuration editor. |
 | `X` / `T` | Toggle throwaway marker. |
-| `M` | Show full description and recorded user queries; Up/Down/Page Up/Page Down/Home/End navigate queries, and `q`/Escape closes the popup. |
-| `R` | Refresh discovery with 5 sessions initially; each consecutive press adds 5 to the requested count. |
+| `M` | Show full description and recorded user queries; Up/Down/Page Up/Page Down/Home/End navigate queries, `M` pages down and closes at the last query, and `q`/Escape closes the popup. |
+| `R` | Refresh discovery by requesting five sessions beyond the amount currently loaded in the session list. |
 | `H` | Show help. |
 | Enter | Launch or focus selected session. |
 | `Q` | Quit. |

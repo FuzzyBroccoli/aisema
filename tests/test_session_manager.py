@@ -18,6 +18,7 @@ from session_manager.tui import (
     SessionApp,
     _color_value,
     _inspection_query_index,
+    _read_line,
     _sort_entries,
     _status_marker,
     _word_left,
@@ -183,7 +184,7 @@ class SessionManagerTests(unittest.TestCase):
 
         discovered = [
             parse_line(f"omp --resume id-{index} Session {index}", index)
-            for index in range(10)
+            for index in range(14)
         ]
         assert all(entry is not None for entry in discovered)
         entries = [entry for entry in discovered if entry is not None]

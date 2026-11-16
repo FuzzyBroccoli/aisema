@@ -768,7 +768,8 @@ class SessionApp:
                 description_edits.discard(id(entry))
                 baselines.pop(id(entry), None)
     def _refresh_sessions(self) -> None:
-        self.refresh_count = getattr(self, "refresh_count", 0) + 5
+        loaded_count = len(self.document.entries)
+        self.refresh_count = loaded_count + 5
         current = self._selected_entry()
         try:
             discovered = discover_recent(
@@ -778,13 +779,23 @@ class SessionApp:
         except (OSError, ValueError) as exc:
             self._set_message(f"refresh failed: {exc}", True)
             return
-        self.document.add_discovered(discovered)
+        known = {
+            (entry.runner, entry.session_id)
+            for entry in self.document.entries
+            if entry.session_id
+        }
+        additions = [
+            entry
+            for entry in discovered
+            if not entry.session_id or (entry.runner, entry.session_id) not in known
+        ][:5]
+        self.document.add_discovered(additions)
         process.refresh_active(self.document.entries)
         if self.show_last_used_date:
             refresh_last_used(self.document.entries)
         self.last_active_refresh = time.monotonic()
         self.rebuild(current)
-        self._set_message(f"refreshed {self.refresh_count} sessions")
+        self._set_message(f"refreshed {len(additions)} sessions; requested {self.refresh_count}")
 
 
     def _new_session(self) -> None:
