@@ -871,18 +871,22 @@ class SessionManagerTests(unittest.TestCase):
             self.assertIn("   N", markers)
 
 
-    def test_config_editor_changes_values_without_changing_keywords(self) -> None:
+    def test_config_editor_changes_values_and_uncomments_lines(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config"
             path.write_text("# display_command=full\n# show_throwaway=false\n", encoding="utf-8")
             editor = ConfigEditor(path)
             show_index = next(index for index, item in enumerate(editor.lines) if item.key == "show_throwaway")
-            editor.toggle_comment(show_index)
+            display_index = next(index for index, item in enumerate(editor.lines) if item.key == "display_command")
+            editor.set_value(display_index, "short")
+            self.assertTrue(editor.lines[display_index].active)
             self.assertTrue(editor.toggle_value(show_index))
             editor.save()
             text = path.read_text(encoding="utf-8")
             self.assertIn("show_throwaway=true", text)
-            self.assertIn("# display_command=full", text)
+            self.assertNotIn("# show_throwaway=true", text)
+            self.assertIn("display_command=short", text)
+            self.assertNotIn("# display_command=short", text)
             self.assertNotIn("show_throwaway=truex", text)
     def test_config_editor_removes_duplicate_known_keys_on_save(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

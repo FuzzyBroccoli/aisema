@@ -103,12 +103,14 @@ class ConfigEditor:
         if replacement is None:
             return False
         item.value = replacement
+        item.active = True
         self.raw_lines[item.raw_index] = item.render()
         return True
 
     def set_value(self, index: int, value: str) -> ConfigLine:
         item = self.lines[index]
         item.value = value.strip()
+        item.active = True
         self.raw_lines[item.raw_index] = item.render()
         return item
 
