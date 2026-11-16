@@ -189,7 +189,7 @@ Markers are literal description suffixes:
 ### New-session entries
 
 - Created by the `N` shortcut or `:new session`.
-- Start with `source="temporary"`, command equal to the selected harness name, and description `New <runner> session`.
+- Start with `source="temporary"`, command equal to the selected harness name, and description `New <runner> session`. If both `agent` and `cursor-agent` are installed, new-session selection excludes `cursor-agent` in favor of `agent`; existing stored commands are not rewritten.
 - Launch alone does not write the entry to the session file.
 - The TUI records pre-launch known IDs for that runner, polls discovery after launch and during the normal refresh loop, and refreshes discovery when focusing the tracked tmux pane. It replaces the temporary command with the harness-specific resume command when the new ID appears.
 - The captured ID remains ephemeral and visible with the `N` marker until the user edits the description.

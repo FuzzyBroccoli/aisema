@@ -150,6 +150,48 @@ class SessionManagerTests(unittest.TestCase):
             self.assertEqual(entry.description, "New goose session")
             self.assertEqual(path.read_text(encoding="utf-8"), "goose session resume --name old Goose session\nomp --resume newer OMP session\n")
 
+    def test_new_session_prefers_agent_over_cursor_agent(self) -> None:
+        class Window:
+            def getmaxyx(self) -> tuple[int, int]:
+                return (24, 80)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.txt"
+            path.write_text(
+                "cursor-agent --resume stored Stored cursor session\n",
+                encoding="utf-8",
+            )
+            document = load_document(path)
+            app = object.__new__(SessionApp)
+            app.stdscr = Window()
+            app.document = document
+            app.config = Config(DEFAULTS, path)
+            app.sort_mode = "status"
+            app.first_sort_mode = "date"
+            app.sort_descending = False
+            app.query = ""
+            app.visible = document.entries.copy()
+            app.selected = 0
+            app.scroll_top = 0
+            app.throwaway_visible = set()
+            app.message = ""
+            app.message_is_error = False
+            app.new_session_baselines = {}
+            app.new_session_description_edits = set()
+            app.new_session_panes = {}
+
+            with patch(
+                "session_manager.tui.available_harnesses",
+                return_value=("cursor-agent", "agent"),
+            ):
+                self.assertEqual(app._new_session_harnesses(), ["agent"])
+                with patch.object(app, "_choose_harness", return_value="agent"):
+                    with patch.object(app, "_launch_selected"):
+                        app._new_session()
+
+            self.assertEqual(document.entries[0].command, "cursor-agent --resume stored")
+            self.assertEqual(document.entries[-1].command, "agent")
+
 
     def test_new_session_id_stays_temporary_until_description_edit(self) -> None:
         discovered = parse_line("omp --resume generated New session", 0)

@@ -91,6 +91,7 @@ See [`session_format.md`](session_format.md) for the complete format and renderi
 Press `N` or run `:new session` to choose an installed harness and create a temporary session.
 
 The manager records the existing IDs for that harness, launches the new session, and polls harness discovery for the newly generated ID. When the ID becomes available, the in-memory command changes to the harness-specific resume command and the hash appears in the session list with the `N` marker.
+When both `agent` and `cursor-agent` are installed, the new-session picker offers the shorter `agent` launcher. Existing stored entries keep their exact stored runner command.
 
 New-session behavior:
 

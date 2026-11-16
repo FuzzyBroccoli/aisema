@@ -497,6 +497,8 @@ class SessionApp:
 
     def _new_session_harnesses(self) -> list[str]:
         installed = list(available_harnesses())
+        if "agent" in installed and "cursor-agent" in installed:
+            installed.remove("cursor-agent")
         installed_set = set(installed)
         ordered: list[str] = []
         for entry in [*self.visible, *self.document.entries]:
