@@ -6,7 +6,10 @@ from typing import Dict
 
 from .model import DEFAULT_DATE_FORMAT
 
+DEFAULT_SESSIONS_FILE = Path.home() / ".config" / "session-manager" / "sessions.txt"
+
 DEFAULTS: Dict[str, str] = {
+    "sessions_file": str(DEFAULT_SESSIONS_FILE),
     "display_command": "full",
     "show_throwaway": "false",
     "show_done": "true",
@@ -49,9 +52,12 @@ class Config:
         return self.get("show_done").lower() in {"1", "true", "yes", "on"}
 
     @property
+    def sessions_file(self) -> Path:
+        return Path(self.get("sessions_file")).expanduser()
+
+    @property
     def show_last_used_date(self) -> bool:
         return self.get("show_last_used_date").lower() in {"1", "true", "yes", "on"}
-
 
 
 class ConfigError(ValueError):
@@ -110,4 +116,6 @@ def load_config(path: Path) -> Config:
         merged["show_throwaway"] = DEFAULTS["show_throwaway"]
     if merged["show_done"].lower() not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
         merged["show_done"] = DEFAULTS["show_done"]
+    if not merged["sessions_file"].strip():
+        merged["sessions_file"] = DEFAULTS["sessions_file"]
     return Config(merged, path)

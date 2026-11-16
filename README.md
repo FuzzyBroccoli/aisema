@@ -39,9 +39,9 @@ The project uses Python’s standard library and has no repository dependency fi
 ./aisema
 ```
 
-The default paths are relative to the process working directory:
+The default paths are:
 
-- Session file: `../sessions.txt`
+- Session file: `~/.config/session-manager/sessions.txt`
 - Configuration: `~/.config/aisema/config`
 
 Use explicit paths when running from another directory:
@@ -52,7 +52,7 @@ Use explicit paths when running from another directory:
   --config ~/.config/aisema/config
 ```
 
-The session file is created if it does not exist. The configuration file is created with commented defaults on first run.
+The session file is created if it does not exist. Its path can be changed with `sessions_file` in the configuration or overridden with `--file`. The configuration file is created with commented defaults on first run.
 
 ## Discover recent sessions
 

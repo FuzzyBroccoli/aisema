@@ -4,13 +4,13 @@ import argparse
 from pathlib import Path
 
 from . import process
-from .config import load_config
+from .config import DEFAULT_SESSIONS_FILE, load_config
 from .discovery import available_harnesses, discover_recent
 from .storage import load_document
 from .tui import run_tui
 
 
-DEFAULT_SESSION_FILE = Path("..") / "sessions.txt"
+DEFAULT_SESSION_FILE = DEFAULT_SESSIONS_FILE
 DEFAULT_CONFIG_FILE = Path.home() / ".config" / "aisema" / "config"
 
 
@@ -19,8 +19,8 @@ def main() -> None:
     parser.add_argument(
         "--file",
         type=Path,
-        default=DEFAULT_SESSION_FILE,
-        help="session log path (default: ../sessions.txt)",
+        default=None,
+        help=f"session log path (default: {DEFAULT_SESSION_FILE})",
     )
     parser.add_argument(
         "--config",
@@ -32,10 +32,12 @@ def main() -> None:
         "session_selector",
         nargs="?",
         metavar="COUNT|ALL",
-        help="discover COUNT newest sessions, or all sessions; omit to use sessions.txt only",
+        help="discover COUNT newest sessions, or all sessions; omit to use the configured session file only",
     )
     args = parser.parse_args()
-    document = load_document(args.file)
+    config = load_config(args.config)
+    session_file = args.file if args.file is not None else config.sessions_file
+    document = load_document(session_file)
     installed_harnesses = available_harnesses()
     if args.session_selector is not None:
         selector = args.session_selector
@@ -55,7 +57,6 @@ def main() -> None:
             document.add_discovered([entry for entry in active_entries if entry.active])
         except (OSError, ValueError):
             pass
-    config = load_config(args.config)
     run_tui(document, config)
 
 

@@ -19,9 +19,9 @@ From the repository directory:
 CLI options:
 
 ```text
---file PATH       Session log path. Default: ../sessions.txt
+--file PATH       Session log path. Overrides the configured sessions_file.
 --config PATH     Configuration path. Default: ~/.config/aisema/config
-COUNT|ALL         Optional discovery selector. Omit it to use only the session log.
+COUNT|ALL         Optional discovery selector. Omit it to use only the configured session log.
 ```
 
 `COUNT` must be a positive integer. `all` is case-insensitive and discovers all sessions available through installed supported harnesses. A numeric selector discovers the globally newest `COUNT` sessions across the selected installed harnesses.
@@ -48,9 +48,10 @@ flowchart TD
 ### `session_manager/__main__.py`
 
 - Defines CLI defaults and argument parsing.
+- Loads configuration before selecting the session document path.
 - Calls `load_document()`.
 - Calls `available_harnesses()` and, when a selector is supplied, `discover_recent()`.
-- Calls `load_config()` and `run_tui()`.
+- Calls `run_tui()`.
 
 ### `session_manager/model.py`
 
@@ -106,7 +107,7 @@ Owns the curses application:
 
 ## 4. Session file format
 
-The default session file is `../sessions.txt`, resolved relative to the process working directory unless `--file` is supplied.
+The default session file is `~/.config/session-manager/sessions.txt`. The `sessions_file` configuration key overrides this path, and `--file` takes precedence over the configuration.
 
 ### 4.1 Lines
 
@@ -306,11 +307,12 @@ The loader:
 - Treats `#` and `;` entries as comments.
 - Appends missing known defaults as comments.
 - Merges active values over `DEFAULTS`.
-Normalizes invalid `display_command`, `show_throwaway`, and `show_done` values to their defaults.
+Normalizes invalid `display_command`, `show_throwaway`, and `show_done` values to their defaults; an empty `sessions_file` uses its default.
 
 Current defaults:
 
 ```ini
+sessions_file=~/.config/session-manager/sessions.txt
 display_command=full
 show_throwaway=false
 show_done=true
@@ -334,7 +336,7 @@ Properties:
 - Boolean properties recognize `1`, `true`, `yes`, and `on` as true; corresponding false forms are accepted for the loader/UI behavior.
 - `show_throwaway=false` hides throwaway rows unless temporarily overridden by a local toggle.
 - `show_done=false` hides rows whose description ends with ` Done.`.
-- `date_format` controls date rendering only; it does not alter sorting, which uses raw nanoseconds.
+- `sessions_file` selects the session log when `--file` is not supplied.
 
 The config editor lists every known default key. It supports:
 

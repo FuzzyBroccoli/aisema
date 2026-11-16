@@ -471,11 +471,15 @@ class SessionManagerTests(unittest.TestCase):
             self.assertTrue(config.show_done)
             self.assertFalse(config.show_last_used_date)
             self.assertEqual(config.get("date_format"), "%d.%m.%Y")
+            self.assertEqual(
+                config.sessions_file,
+                Path.home() / ".config" / "session-manager" / "sessions.txt",
+            )
             text = path.read_text(encoding="utf-8")
+            self.assertIn("# sessions_file=", text)
             self.assertIn("# show_throwaway=false", text)
             self.assertIn("# show_done=true", text)
             self.assertIn("# show_last_used_date=false", text)
-
             path.write_text(
                 "display_command=short\nshow_throwaway=true\nshow_done=false\nshow_last_used_date=true\n"
                 "date_format=%Y-%m-%d\n",
@@ -744,6 +748,28 @@ class SessionManagerTests(unittest.TestCase):
             document = run_tui.call_args.args[0]
             self.assertEqual(len(document.ephemeral), 0)
             self.assertEqual(len(document.entries), 1)
+    def test_cli_uses_configured_sessions_file_without_file_override(self) -> None:
+        import session_manager.__main__ as main_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session_file = root / "configured-sessions.txt"
+            config_file = root / "config"
+            session_file.write_text("omp --resume configured Configured session\n", encoding="utf-8")
+            config_file.write_text(f"sessions_file={session_file}\n", encoding="utf-8")
+            with patch.object(main_module, "available_harnesses", return_value=("omp",)):
+                with patch.object(main_module, "discover_recent", return_value=[]):
+                    with patch.object(main_module.process, "refresh_active"):
+                        with patch.object(main_module, "run_tui") as run_tui:
+                            with patch.object(
+                                sys,
+                                "argv",
+                                ["aisema", "--config", str(config_file)],
+                            ):
+                                main_module.main()
+            document = run_tui.call_args.args[0]
+            self.assertEqual([entry.session_id for entry in document.entries], ["configured"])
+
 
     def test_cli_without_selector_adds_active_sessions(self) -> None:
         import session_manager.__main__ as main_module
