@@ -41,10 +41,12 @@ class ConfigEditor:
 
     def _parse_lines(self) -> list[ConfigLine]:
         found: dict[str, ConfigLine] = {}
+        recognized_indices: set[int] = set()
         for raw_index, raw in enumerate(self.raw_lines):
             match = _CONFIG_LINE_RE.match(raw)
             if not match or match.group("key") not in DEFAULTS:
                 continue
+            recognized_indices.add(raw_index)
             key = match.group("key")
             item = ConfigLine(
                 key=key,
@@ -55,6 +57,19 @@ class ConfigEditor:
             previous = found.get(key)
             if previous is None or item.active:
                 found[key] = item
+
+        keep_indices = {item.raw_index for item in found.values()}
+        if keep_indices != recognized_indices:
+            old_to_new: dict[int, int] = {}
+            compacted: list[str] = []
+            for old_index, raw in enumerate(self.raw_lines):
+                if old_index in recognized_indices and old_index not in keep_indices:
+                    continue
+                old_to_new[old_index] = len(compacted)
+                compacted.append(raw)
+            self.raw_lines = compacted
+            for item in found.values():
+                item.raw_index = old_to_new[item.raw_index]
 
         for key, default in DEFAULTS.items():
             if key not in found:

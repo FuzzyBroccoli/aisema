@@ -571,6 +571,25 @@ class SessionManagerTests(unittest.TestCase):
             self.assertIn("show_throwaway=true", text)
             self.assertIn("# display_command=full", text)
             self.assertNotIn("show_throwaway=truex", text)
+    def test_config_editor_removes_duplicate_known_keys_on_save(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config"
+            path.write_text(
+                "display_command=short\n"
+                "# display_command=full\n"
+                "# show_throwaway=false\n"
+                "# show_throwaway=false\n"
+                "show_last_used_date=true\n"
+                "# show_last_used_date=false\n",
+                encoding="utf-8",
+            )
+            editor = ConfigEditor(path)
+            editor.save()
+            lines = path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(sum(line.lstrip("# ").startswith("display_command=") for line in lines), 1)
+            self.assertEqual(sum(line.lstrip("# ").startswith("show_throwaway=") for line in lines), 1)
+            self.assertEqual(sum(line.lstrip("# ").startswith("show_last_used_date=") for line in lines), 1)
+
 
     def test_config_loader_does_not_duplicate_commented_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
