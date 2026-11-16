@@ -25,7 +25,7 @@ class DiscoveredSession:
     updated_ns: int
     runner: str
     resume_command: str
-
+    user_queries: tuple[str, ...] = ()
 
 def available_harnesses() -> tuple[str, ...]:
     """Return supported harness commands available without starting them."""
@@ -66,6 +66,13 @@ def _user_prompt(record: dict[str, Any]) -> str:
     if role != "user":
         return ""
     return _clean_text(content)
+def _clean_runner_prompt(runner: str, prompt: str) -> str:
+    if runner != "cursor-agent":
+        return prompt
+    prompt = re.sub(r"<timestamp>.*?</timestamp>", "", prompt, flags=re.DOTALL)
+    prompt = re.sub(r"<user_query>(.*?)</user_query>", r"\1", prompt, flags=re.DOTALL)
+    return _clean_text(prompt)
+
 
 
 def _timestamp_ns(value: Any, fallback: int) -> int:
@@ -101,6 +108,7 @@ def _discovered(
     session_id: str,
     description: str,
     updated_ns: int,
+    user_queries: tuple[str, ...] = (),
 ) -> DiscoveredSession:
     return DiscoveredSession(
         path=path,
@@ -109,6 +117,7 @@ def _discovered(
         updated_ns=updated_ns,
         runner=runner,
         resume_command=_resume_command(runner, session_id),
+        user_queries=user_queries,
     )
 
 
@@ -116,6 +125,7 @@ def _metadata(path: Path) -> Optional[DiscoveredSession]:
     session_id = ""
     title = ""
     prompt = ""
+    prompts: list[str] = []
     try:
         updated_ns = path.stat().st_mtime_ns
         with path.open("r", encoding="utf-8") as handle:
@@ -136,6 +146,7 @@ def _metadata(path: Path) -> Optional[DiscoveredSession]:
                     candidate = _user_prompt(record)
                     if candidate:
                         prompt = candidate
+                        prompts.append(candidate)
     except (OSError, UnicodeError):
         return None
 
@@ -145,7 +156,14 @@ def _metadata(path: Path) -> Optional[DiscoveredSession]:
             session_id = match.group(1)
     if not session_id:
         return None
-    return _discovered("omp", path, session_id, prompt or title or "OMP session", updated_ns)
+    return _discovered(
+        "omp",
+        path,
+        session_id,
+        prompt or title or "OMP session",
+        updated_ns,
+        tuple(prompts),
+    )
 
 
 def _discover_omp() -> list[DiscoveredSession]:
@@ -195,6 +213,7 @@ def _generic_json_session(
     if records is None:
         return None
     prompt = ""
+    prompts: list[str] = []
     title = ""
     record_id = session_id or ""
     updated = path.stat().st_mtime_ns
@@ -209,9 +228,10 @@ def _generic_json_session(
             if key in top_level:
                 updated = _timestamp_ns(top_level[key], updated)
     for record in records:
-        candidate = _user_prompt(record)
+        candidate = _clean_runner_prompt(runner, _user_prompt(record))
         if candidate:
             prompt = candidate
+            prompts.append(candidate)
         for key in ("sessionId", "session_id", "id"):
             if not record_id and isinstance(record.get(key), str):
                 record_id = record[key]
@@ -223,11 +243,7 @@ def _generic_json_session(
                 updated = _timestamp_ns(record[key], updated)
     if not record_id:
         record_id = path.stem
-    if runner == "cursor-agent":
-        prompt = re.sub(r"<timestamp>.*?</timestamp>", "", prompt, flags=re.DOTALL)
-        prompt = re.sub(r"<user_query>(.*?)</user_query>", r"\1", prompt, flags=re.DOTALL)
-        prompt = _clean_text(prompt)
-    return _discovered(runner, path, record_id, prompt or title, updated)
+    return _discovered(runner, path, record_id, prompt or title, updated, tuple(prompts))
 
 
 def _discover_copilot() -> list[DiscoveredSession]:
@@ -409,6 +425,7 @@ def discover_recent(
                 line_number=0,
                 source="discovered",
                 last_used_ns=item.updated_ns,
+                user_queries=list(item.user_queries),
             )
         )
     return result

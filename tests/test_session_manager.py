@@ -17,6 +17,7 @@ from session_manager import tmux
 from session_manager.tui import (
     SessionApp,
     _color_value,
+    _inspection_query_index,
     _sort_entries,
     _status_marker,
     _word_left,
@@ -63,6 +64,60 @@ class SessionManagerTests(unittest.TestCase):
                 with patch("session_manager.tui.process.refresh_active"):
                     run_tui(document, config)
         self.assertTrue(any(text.startswith(" sessions: ") for text in screen.drawn_text))
+    def test_m_opens_query_popup_and_closes_with_q(self) -> None:
+        class Screen:
+            def __init__(self) -> None:
+                self.keys = iter([ord("m"), ord("q")])
+
+            def keypad(self, enabled: bool) -> None:
+                pass
+
+            def timeout(self, milliseconds: int) -> None:
+                pass
+
+            def getmaxyx(self) -> tuple[int, int]:
+                return (24, 80)
+
+            def erase(self) -> None:
+                pass
+
+            def addnstr(self, y: int, x: int, text: str, width: int, attr: int = 0) -> None:
+                pass
+
+            def refresh(self) -> None:
+                pass
+
+            def getch(self) -> int:
+                return next(self.keys)
+
+        class Popup(Screen):
+            def __init__(self) -> None:
+                super().__init__()
+                self.keys = iter([curses.KEY_UP, ord("q")])
+                self.drawn: list[str] = []
+
+            def addnstr(self, y: int, x: int, text: str, width: int, attr: int = 0) -> None:
+                self.drawn.append(text[:width])
+
+            def box(self) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.txt"
+            document = load_document(path)
+            entry = parse_line("omp --resume inspect Inspect this session", 1)
+            assert entry is not None
+            entry.user_queries = ["First question", "Latest question"]
+            document.lines.append(entry)
+            screen = Screen()
+            popup = Popup()
+            with patch("session_manager.tui.curses.wrapper", lambda callback: callback(screen)):
+                with patch("session_manager.tui.curses.newwin", return_value=popup):
+                    with patch("session_manager.tui.process.refresh_active"):
+                        run_tui(document, Config(DEFAULTS, path))
+            self.assertIn("Inspect this session", popup.drawn)
+            self.assertIn("Latest question", popup.drawn)
+
 
     def test_parse_done_and_throwaway_markers(self) -> None:
         entry = parse_line("omp --resume abc-123 Work in progress", 1)
@@ -707,6 +762,35 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(cursor.description, "Fix the cursor prompt")
         self.assertIn("<timestamp>", other.description)
         self.assertIn("<user_query>", other.description)
+    def test_discovery_preserves_all_user_queries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "agent.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "sessionId": "agent-id",
+                        "messages": [
+                            {"role": "user", "content": "First question"},
+                            {"role": "assistant", "content": "Answer"},
+                            {"role": "user", "content": "Latest question"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            session = _generic_json_session("agent", path)
+        assert session is not None
+        self.assertEqual(session.user_queries, ("First question", "Latest question"))
+
+    def test_inspection_query_navigation(self) -> None:
+        self.assertEqual(_inspection_query_index(None, 3, curses.KEY_UP, 2), 2)
+        self.assertEqual(_inspection_query_index(2, 3, curses.KEY_UP, 2), 1)
+        self.assertEqual(_inspection_query_index(1, 3, curses.KEY_DOWN, 2), 2)
+        self.assertEqual(_inspection_query_index(2, 3, curses.KEY_PPAGE, 2), 0)
+        self.assertEqual(_inspection_query_index(0, 3, curses.KEY_NPAGE, 2), 2)
+        self.assertEqual(_inspection_query_index(2, 3, curses.KEY_HOME, 2), 0)
+        self.assertEqual(_inspection_query_index(0, 3, curses.KEY_END, 2), 2)
+
 
     def test_discover_recent_merges_harnesses_by_update_time(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

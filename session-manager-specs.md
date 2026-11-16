@@ -85,6 +85,7 @@ Provides:
 - Per-harness session discovery adapters.
 - Timestamp normalization to nanoseconds.
 - Description extraction from latest user prompts or titles.
+- Preservation of all extracted user queries for the `M` inspection popup.
 - Last-used timestamp refresh for existing entries.
 
 ### `session_manager/process.py`
@@ -365,8 +366,8 @@ Shortcuts are case-insensitive unless noted:
 | `S` | Choose a first- or second-layer sort mode from a popup; press `S` in the popup to switch layers. |
 | `C` | Open configuration editor. |
 | `X` | Toggle throwaway marker. |
+| `M` | Show full description and recorded user queries; Up/Down/Page Up/Page Down/Home/End navigate queries, and `q`/Escape closes the popup. |
 | `H` | Show help. |
-| `N` | Choose a harness and create a temporary new session. |
 | Enter | Launch or focus selected session. |
 | `Q` | Quit. |
 | Escape | Clear search in the main view; closes help/config contexts. |

@@ -3,6 +3,7 @@ from __future__ import annotations
 import curses
 from datetime import datetime
 import subprocess
+import textwrap
 import time
 from typing import Callable, Optional
 
@@ -75,6 +76,30 @@ def _safe_addstr(stdscr: curses.window, y: int, x: int, text: str, width: int, a
         stdscr.addnstr(y, x, text, width, attr)
     except curses.error:
         pass
+
+def _inspection_query_index(
+    current: Optional[int],
+    count: int,
+    key: int,
+    page: int,
+) -> Optional[int]:
+    if count <= 0:
+        return current
+    page = max(1, page)
+    if key == curses.KEY_UP:
+        return count - 1 if current is None else max(0, current - 1)
+    if key == curses.KEY_DOWN:
+        return 0 if current is None else min(count - 1, current + 1)
+    if key == curses.KEY_PPAGE:
+        return count - 1 if current is None else max(0, current - page)
+    if key == curses.KEY_NPAGE:
+        return 0 if current is None else min(count - 1, current + page)
+    if key == curses.KEY_HOME:
+        return 0
+    if key == curses.KEY_END:
+        return count - 1
+    return current
+
 
 def _status_marker(entry: SessionEntry) -> str:
     return "".join(
@@ -388,6 +413,79 @@ class SessionApp:
     def _set_message(self, message: str, error: bool = False) -> None:
         self.message = message
         self.message_is_error = error
+    def _queries_for_entry(self, entry: SessionEntry) -> list[str]:
+        if entry.user_queries or not entry.session_id:
+            return entry.user_queries
+        try:
+            discovered = discover_recent("all", runners=(entry.runner,))
+        except (OSError, ValueError):
+            return []
+        for candidate in discovered:
+            if candidate.session_id == entry.session_id:
+                entry.user_queries = candidate.user_queries
+                return entry.user_queries
+        return []
+
+    def _show_more(self) -> None:
+        entry = self._selected_entry()
+        if entry is None:
+            self._set_message("no session selected", True)
+            return
+        queries = self._queries_for_entry(entry)
+        height, width = self.stdscr.getmaxyx()
+        description = entry.description or "(empty description)"
+        desired_width = max(
+            [len(line) for line in [description, *queries]] + [24]
+        ) + 4
+        popup_width = min(max(3, width - 2), max(3, desired_width))
+        popup_height = max(3, height - 2)
+        top = max(0, (height - popup_height) // 2)
+        left = max(0, (width - popup_width) // 2)
+        try:
+            popup = curses.newwin(popup_height, popup_width, top, left)
+        except curses.error:
+            self._set_message("terminal is too small for session details", True)
+            return
+        popup.keypad(True)
+        query_index: Optional[int] = None
+        try:
+            while True:
+                content_width = max(1, popup_width - 4)
+                lines = ["Description"]
+                lines.extend(textwrap.wrap(description, width=content_width) or [""])
+                lines.append("")
+                if queries and query_index is not None:
+                    lines.append(f"User query {query_index + 1}/{len(queries)}")
+                    lines.extend(
+                        textwrap.wrap(queries[query_index], width=content_width) or [""]
+                    )
+                elif queries:
+                    lines.append(f"{len(queries)} user queries recorded")
+                    lines.append("Use Up/Down or Page Up/Page Down to browse queries")
+                else:
+                    lines.append("No user queries recorded")
+                popup.erase()
+                try:
+                    popup.box()
+                except curses.error:
+                    pass
+                for offset, line in enumerate(lines[: max(1, popup_height - 2)], start=1):
+                    _safe_addstr(popup, offset, 2, line, max(1, popup_width - 4))
+                footer = "Up/Down/PgUp/PgDn/Home/End  q/Esc close"
+                _safe_addstr(popup, popup_height - 1, 2, footer, max(1, popup_width - 4), curses.A_DIM)
+                popup.refresh()
+                key = popup.getch()
+                if key in (ord("q"), ord("Q"), 27):
+                    return
+                query_index = _inspection_query_index(
+                    query_index,
+                    len(queries),
+                    key,
+                    max(1, popup_height - 4),
+                )
+        finally:
+            del popup
+
 
     def _save(
         self,
@@ -859,9 +957,9 @@ class SessionApp:
             "  S             choose sort mode",
             "  C             open config",
             "  X             toggle throwaway marker",
+            "  M             show description and user queries",
             "  N             start a new session",
             "  H             show help",
-            "  Q             quit",
             "",
             "Commands",
             "  :find TEXT    search descriptions, IDs, and commands",
@@ -980,7 +1078,7 @@ class SessionApp:
 
         footer_attr = self._attr("error" if self.message_is_error else "prompt")
         footer = self.message or "ready"
-        shortcuts = "F:find  E:edit  D:done  S:sort  C:config  X:throwaway  H:help  N:new session  Q:quit"
+        shortcuts = "F:find  E:edit  D:done  S:sort  C:config  X:throwaway  M:more  H:help  N:new session  Q:quit"
         _safe_addstr(self.stdscr, max(0, height - 2), 0, footer, max(1, width - 1), footer_attr)
         _safe_addstr(self.stdscr, max(0, height - 1), 0, shortcuts, max(1, width - 1), curses.A_DIM)
         self.stdscr.refresh()
@@ -1245,6 +1343,8 @@ class SessionApp:
                 self._run_command(":config")
             elif key in (ord("x"), ord("X")):
                 self._toggle_throwaway()
+            elif key in (ord("m"), ord("M")):
+                self._show_more()
             elif key in (ord("h"), ord("H")):
                 self._run_command(":help")
             elif key in (ord("n"), ord("N")):
