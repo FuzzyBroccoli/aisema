@@ -676,22 +676,58 @@ class SessionManagerTests(unittest.TestCase):
             config_file = root / "config"
             session_file.write_text("omp --resume local-id Local session\n", encoding="utf-8")
             with patch.object(main_module, "available_harnesses", return_value=("omp",)):
-                with patch.object(main_module, "run_tui") as run_tui:
-                    with patch.object(
-                        sys,
-                        "argv",
-                        [
-                            "aisema",
-                            "--file",
-                            str(session_file),
-                            "--config",
-                            str(config_file),
-                        ],
-                    ):
-                        main_module.main()
+                with patch.object(main_module, "discover_recent", return_value=[]):
+                    with patch.object(main_module, "run_tui") as run_tui:
+                        with patch.object(main_module.process, "refresh_active"):
+                            with patch.object(
+                                sys,
+                                "argv",
+                                [
+                                    "aisema",
+                                    "--file",
+                                    str(session_file),
+                                    "--config",
+                                    str(config_file),
+                                ],
+                            ):
+                                main_module.main()
             document = run_tui.call_args.args[0]
             self.assertEqual(len(document.ephemeral), 0)
             self.assertEqual(len(document.entries), 1)
+
+    def test_cli_without_selector_adds_active_sessions(self) -> None:
+        import session_manager.__main__ as main_module
+
+        active = parse_line("omp --resume active Active session", 0)
+        assert active is not None
+
+        def mark_active(entries) -> None:
+            entries[0].active = True
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session_file = root / "sessions.txt"
+            config_file = root / "config"
+            session_file.write_text("", encoding="utf-8")
+            with patch.object(main_module, "available_harnesses", return_value=("omp",)):
+                with patch.object(main_module, "discover_recent", return_value=[active]):
+                    with patch.object(main_module.process, "refresh_active", side_effect=mark_active):
+                        with patch.object(main_module, "run_tui") as run_tui:
+                            with patch.object(
+                                sys,
+                                "argv",
+                                [
+                                    "aisema",
+                                    "--file",
+                                    str(session_file),
+                                    "--config",
+                                    str(config_file),
+                                ],
+                            ):
+                                main_module.main()
+            document = run_tui.call_args.args[0]
+            self.assertEqual([entry.session_id for entry in document.ephemeral], ["active"])
+            self.assertTrue(document.ephemeral[0].active)
 
     def test_discover_recent_omp_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

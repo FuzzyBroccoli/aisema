@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from . import process
 from .config import load_config
 from .discovery import available_harnesses, discover_recent
 from .storage import load_document
@@ -47,6 +48,13 @@ def main() -> None:
             document.add_discovered(discover_recent(selector, runners=installed_harnesses))
         except ValueError as exc:
             parser.error(str(exc))
+    else:
+        try:
+            active_entries = discover_recent("all", runners=installed_harnesses)
+            process.refresh_active(active_entries)
+            document.add_discovered([entry for entry in active_entries if entry.active])
+        except (OSError, ValueError):
+            pass
     config = load_config(args.config)
     run_tui(document, config)
 
