@@ -1,6 +1,6 @@
-# Session Manager Specifications
+# Aisema Specifications
 
-This document records the implemented behavior and architecture of the session manager. It is intended as a handoff document for future work. The Python source is authoritative when this document and older prose differ.
+This document records the implemented behavior and architecture of Aisema. It is intended as a handoff document for future work. The Python source is authoritative when this document and older prose differ.
 
 ## 1. Product purpose
 
@@ -13,14 +13,14 @@ The implementation is a small Python package in `session_manager/`. There is no 
 From the repository directory:
 
 ```sh
-python3 -m session_manager
+./aisema
 ```
 
 CLI options:
 
 ```text
 --file PATH       Session log path. Default: ../sessions.txt
---config PATH     Configuration path. Default: ~/.config/session-manager/config
+--config PATH     Configuration path. Default: ~/.config/aisema/config
 COUNT|ALL         Optional discovery selector. Omit it to use only the session log.
 ```
 
@@ -296,7 +296,7 @@ The TUI refreshes active process state and pending new-session discovery approxi
 
 ## 9. Configuration specification
 
-Default file: `~/.config/session-manager/config`.
+Default file: `~/.config/aisema/config`.
 
 The loader:
 

@@ -841,7 +841,7 @@ class SessionApp:
 
     def _draw_help(self, height: int, width: int) -> None:
         lines = [
-            "Session manager help",
+            "Aisema help",
             "",
             "Navigation",
             "  Up/Down       move one row",

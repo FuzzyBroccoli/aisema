@@ -1,8 +1,8 @@
-# session-manager
+# Aisema
 
 A small curses TUI for browsing, searching, sorting, editing, and resuming coding-agent sessions.
 
-`session-manager` keeps a human-readable session log, optionally discovers recent sessions from installed agent harnesses, and launches or focuses the selected session. It is designed for terminal and tmux workflows.
+`Aisema` keeps a human-readable session log, optionally discovers recent sessions from installed agent harnesses, and launches or focuses the selected session. It is designed for terminal and tmux workflows.
 
 ## Features
 
@@ -36,20 +36,20 @@ The project uses Python’s standard library and has no repository dependency fi
 ## Run from a checkout
 
 ```sh
-python3 -m session_manager
+./aisema
 ```
 
 The default paths are relative to the process working directory:
 
 - Session file: `../sessions.txt`
-- Configuration: `~/.config/session-manager/config`
+- Configuration: `~/.config/aisema/config`
 
 Use explicit paths when running from another directory:
 
 ```sh
-python3 -m session_manager \
+./aisema \
   --file /path/to/sessions.txt \
-  --config ~/.config/session-manager/config
+  --config ~/.config/aisema/config
 ```
 
 The session file is created if it does not exist. The configuration file is created with commented defaults on first run.
@@ -59,8 +59,8 @@ The session file is created if it does not exist. The configuration file is crea
 Without a positional selector, startup loads only the session file. Pass a positive count to discover that many newest sessions across installed supported harnesses, or use `all` to discover every available session:
 
 ```sh
-python3 -m session_manager 20
-python3 -m session_manager all
+./aisema 20
+./aisema all
 ```
 
 Discovery entries are temporary until changed. Editing their description or changing a marker materializes them into `sessions.txt`.
@@ -143,7 +143,7 @@ Sort modes include `status`, `date`, `none`, `original`, `id`, `command`, `descr
 
 ## Configuration
 
-Configuration is stored at `~/.config/session-manager/config` by default. Supported settings include:
+Configuration is stored at `~/.config/aisema/config` by default. Supported settings include:
 
 ```ini
 display_command=full
@@ -192,7 +192,7 @@ Current package version: `0.1.0`.
 
 ## License
 
-The `session-manager` program files in this repository are licensed under the GNU General Public License, version 3 or later. See [`LICENSE`](LICENSE).
+The Aisema program files in this repository are licensed under the GNU General Public License, version 3 or later. See [`LICENSE`](LICENSE).
 
-This license applies to the `session_manager/` program and its related program files. It does not apply to user data handled by the program, including `sessions.txt`, AI-agent session records, prompts, transcripts, or session results. Those files remain governed by their owners' rights and by any applicable terms of the AI-agent tools or services that created them. Running `session-manager` does not automatically license, modify, or redistribute that user data under the GPL.
+This license applies to the `session_manager/` program and its related program files. It does not apply to user data handled by the program, including `sessions.txt`, AI-agent session records, prompts, transcripts, or session results. Those files remain governed by their owners' rights and by any applicable terms of the AI-agent tools or services that created them. Running Aisema does not automatically license, modify, or redistribute that user data under the GPL.
 

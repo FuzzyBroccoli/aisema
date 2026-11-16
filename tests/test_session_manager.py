@@ -681,7 +681,7 @@ class SessionManagerTests(unittest.TestCase):
                         sys,
                         "argv",
                         [
-                            "session-manager",
+                            "aisema",
                             "--file",
                             str(session_file),
                             "--config",

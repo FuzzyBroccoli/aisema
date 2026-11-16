@@ -32,9 +32,9 @@ omp --resume 01a2b3c4-5d6e-7f80-9012-34567890abcd Archive the completed import D
 
 Blank lines, if present, have no session meaning. Entries are not otherwise reclassified by this specification.
 
-## Session manager behavior
+## Aisema behavior
 
-The session-manager TUI reads `../sessions.txt`, displays every non-empty entry, and keeps completed entries visible after entries without the terminal done marker. The first column has fixed status slots in order: `A` active, `D` done, `X` throwaway, and `N` not yet present in `sessions.txt`; missing statuses remain blank so each letter stays in the same character column. For example, a row with all four statuses starts `ADXN omp 32094u320`. The command column shows the stored command by default; the configuration can instead show the runner and final hyphen-separated session-ID component, such as `omp 4785cd455157`. Within each status group, entries are ordered by last-used time with the newest first; the selected sort mode remains the primary key when it is not the default status view.
+The Aisema TUI reads `../sessions.txt`, displays every non-empty entry, and keeps completed entries visible after entries without the terminal done marker. The first column has fixed status slots in order: `A` active, `D` done, `X` throwaway, and `N` not yet present in `sessions.txt`; missing statuses remain blank so each letter stays in the same character column. For example, a row with all four statuses starts `ADXN omp 32094u320`. The command column shows the stored command by default; the configuration can instead show the runner and final hyphen-separated session-ID component, such as `omp 4785cd455157`. Within each status group, entries are ordered by last-used time with the newest first; the selected sort mode remains the primary key when it …
 
 The manager recognizes `<runner> [--flag ...] --resume <id> [--flag ...]`, `<runner> [--flag ...] --session <id> [--flag ...]`, and `goose [--flag ...] session resume --name <id> [--flag ...]` command shapes. Additional flag tokens beginning with `--` may appear before the resume selector, after its session ID, or both. Other non-empty lines remain visible and searchable, but are not launchable because their command boundary cannot be identified.
 
@@ -46,7 +46,7 @@ For discovered sessions, the default description is the latest user prompt from 
 The `show_throwaway` setting controls whether throwaway entries are visible. Hidden throwaway entries are also excluded from searches until enabled.
 When `show_last_used_date=true`, the list inserts the last-used timestamp (`%d.%m.%Y` by default, local time) between the command column and description. `date_format` accepts a Python `strftime` format string, and `:date` toggles this display live; `:date on` and `:date off` select an explicit state without changing the saved configuration.
 
-The configuration file is `~/.config/session-manager/config`. On first run it is created with every supported setting commented out at its default value. Missing settings are appended as commented defaults without replacing existing settings. Current settings are:
+The configuration file is `~/.config/aisema/config`. On first run it is created with every supported setting commented out at its default value. Missing settings are appended as commented defaults without replacing existing settings. Current settings are:
 
 ```ini
 # display_command=full

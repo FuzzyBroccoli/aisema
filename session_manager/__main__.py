@@ -10,11 +10,11 @@ from .tui import run_tui
 
 
 DEFAULT_SESSION_FILE = Path("..") / "sessions.txt"
-DEFAULT_CONFIG_FILE = Path.home() / ".config" / "session-manager" / "config"
+DEFAULT_CONFIG_FILE = Path.home() / ".config" / "aisema" / "config"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Browse and resume sessions")
+    parser = argparse.ArgumentParser(prog="aisema", description="Aisema: browse and resume sessions")
     parser.add_argument(
         "--file",
         type=Path,

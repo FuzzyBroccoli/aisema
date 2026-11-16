@@ -56,7 +56,7 @@ class ConfigError(ValueError):
 
 def _commented_defaults() -> str:
     lines = [
-        "# session-manager configuration",
+        "# Aisema configuration",
         "# Values use key=value syntax.",
         "# display_command accepts full, short, or none.",
     ]
