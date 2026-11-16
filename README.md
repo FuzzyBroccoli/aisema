@@ -189,3 +189,10 @@ The implementation is in [`session_manager/`](session_manager/) and tests are in
 ## Version
 
 Current package version: `0.1.0`.
+
+## License
+
+The `session-manager` program files in this repository are licensed under the GNU General Public License, version 3 or later. See [`LICENSE`](LICENSE).
+
+This license applies to the `session_manager/` program and its related program files. It does not apply to user data handled by the program, including `sessions.txt`, AI-agent session records, prompts, transcripts, or session results. Those files remain governed by their owners' rights and by any applicable terms of the AI-agent tools or services that created them. Running `session-manager` does not automatically license, modify, or redistribute that user data under the GPL.
+
