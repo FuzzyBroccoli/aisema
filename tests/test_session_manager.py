@@ -65,7 +65,7 @@ class SessionManagerTests(unittest.TestCase):
                 with patch("session_manager.tui.process.refresh_active"):
                     run_tui(document, config)
         self.assertTrue(any(text.startswith(" sessions: ") for text in screen.drawn_text))
-    def test_m_opens_query_popup_and_closes_with_q(self) -> None:
+    def test_m_opens_query_popup_repeated_m_pages_and_closes(self) -> None:
         class Screen:
             def __init__(self) -> None:
                 self.keys = iter([ord("m"), ord("q")])
@@ -94,7 +94,7 @@ class SessionManagerTests(unittest.TestCase):
         class Popup(Screen):
             def __init__(self) -> None:
                 super().__init__()
-                self.keys = iter([curses.KEY_UP, ord("q")])
+                self.keys = iter([ord("m"), ord("m"), ord("m")])
                 self.drawn: list[str] = []
 
             def addnstr(self, y: int, x: int, text: str, width: int, attr: int = 0) -> None:
@@ -118,6 +118,44 @@ class SessionManagerTests(unittest.TestCase):
                         run_tui(document, Config(DEFAULTS, path))
             self.assertIn("Inspect this session", popup.drawn)
             self.assertIn("Latest question", popup.drawn)
+    def test_description_editor_cut_paste_shortcuts(self) -> None:
+        class Screen:
+            def __init__(self, keys: list[int]) -> None:
+                self.keys = iter(keys)
+
+            def keypad(self, enabled: bool) -> None:
+                pass
+
+            def getmaxyx(self) -> tuple[int, int]:
+                return (24, 80)
+
+            def move(self, y: int, x: int) -> None:
+                pass
+
+            def addnstr(self, y: int, x: int, text: str, width: int, attr: int = 0) -> None:
+                pass
+
+            def refresh(self) -> None:
+                pass
+
+            def getch(self) -> int:
+                return next(self.keys)
+
+        def read(keys: list[int], initial: str = "Long description") -> str | None:
+            with patch("session_manager.tui.curses.curs_set"):
+                return _read_line(
+                    Screen(keys),
+                    "edit> ",
+                    initial,
+                    enable_clipboard=True,
+                )
+
+        enter = 10
+        self.assertEqual(read([ord("d"), ord("d"), 21, enter]), "Long description")
+        self.assertEqual(read([11, 21, enter]), "Long description")
+        self.assertEqual(read([11, enter]), "")
+        self.assertEqual(read([21, enter], "New text"), "New text")
+
     def test_t_alias_toggles_throwaway_marker(self) -> None:
         class Screen:
             def __init__(self) -> None:
@@ -196,6 +234,11 @@ class SessionManagerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.txt"
+            path.write_text(
+                "omp --resume existing-1 Existing one\n"
+                "omp --resume existing-2 Existing two\n",
+                encoding="utf-8",
+            )
             document = load_document(path)
             screen = Screen()
             with patch("session_manager.tui.curses.wrapper", lambda callback: callback(screen)):
@@ -203,8 +246,8 @@ class SessionManagerTests(unittest.TestCase):
                     with patch("session_manager.tui.available_harnesses", return_value=("omp",)):
                         with patch("session_manager.tui.process.refresh_active"):
                             run_tui(document, Config(DEFAULTS, path))
-            self.assertEqual(calls, [5, 10])
-            self.assertEqual(len(document.ephemeral), 10)
+            self.assertEqual(calls, [7, 12])
+            self.assertEqual(len(document.entries), 12)
 
 
     def test_parse_done_and_throwaway_markers(self) -> None:

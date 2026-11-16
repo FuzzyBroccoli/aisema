@@ -216,9 +216,16 @@ def _sort_entries(
 
 
 
-def _read_line(stdscr: curses.window, prompt: str, initial: str = "") -> Optional[str]:
+def _read_line(
+    stdscr: curses.window,
+    prompt: str,
+    initial: str = "",
+    enable_clipboard: bool = False,
+) -> Optional[str]:
     buffer = list(initial)
     cursor = len(buffer)
+    cut_buffer: Optional[str] = None
+    pending_delete = False
     try:
         curses.curs_set(1)
     except curses.error:
@@ -226,6 +233,9 @@ def _read_line(stdscr: curses.window, prompt: str, initial: str = "") -> Optiona
     stdscr.keypad(False)
 
     def finish(result: Optional[str]) -> Optional[str]:
+        nonlocal cut_buffer, pending_delete
+        cut_buffer = None
+        pending_delete = False
         stdscr.keypad(True)
         try:
             curses.curs_set(0)
@@ -247,6 +257,19 @@ def _read_line(stdscr: curses.window, prompt: str, initial: str = "") -> Optiona
             pass
         stdscr.refresh()
         key = stdscr.getch()
+        if enable_clipboard and key == ord("d"):
+            if pending_delete:
+                cut_buffer = "".join(buffer)
+                buffer.clear()
+                cursor = 0
+                pending_delete = False
+            else:
+                pending_delete = True
+            continue
+        if enable_clipboard and pending_delete:
+            buffer.insert(cursor, "d")
+            cursor += 1
+            pending_delete = False
         if key in (10, 13, curses.KEY_ENTER):
             return finish("".join(buffer))
         if key == 27:
@@ -287,6 +310,15 @@ def _read_line(stdscr: curses.window, prompt: str, initial: str = "") -> Optiona
             cursor = 0
         elif key == curses.KEY_END or key == 5:
             cursor = len(buffer)
+        elif enable_clipboard and key == 11:
+            cut_buffer = "".join(buffer)
+            buffer.clear()
+            cursor = 0
+        elif enable_clipboard and key == 21:
+            if cut_buffer is not None:
+                pasted = list(cut_buffer)
+                buffer[cursor:cursor] = pasted
+                cursor += len(pasted)
         elif key == 21:
             buffer.clear()
             cursor = 0
@@ -483,12 +515,16 @@ class SessionApp:
                     pass
                 for offset, line in enumerate(lines[: max(1, popup_height - 2)], start=1):
                     _safe_addstr(popup, offset, 2, line, max(1, popup_width - 4))
-                footer = "Up/Down/PgUp/PgDn/Home/End  q/Esc close"
+                footer = "Up/Down/PgUp/PgDn/Home/End/M  q/Esc close"
                 _safe_addstr(popup, popup_height - 1, 2, footer, max(1, popup_width - 4), curses.A_DIM)
                 popup.refresh()
                 key = popup.getch()
                 if key in (ord("q"), ord("Q"), 27):
                     return
+                if key in (ord("m"), ord("M")):
+                    if query_index is not None and query_index == len(queries) - 1:
+                        return
+                    key = curses.KEY_NPAGE
                 query_index = _inspection_query_index(
                     query_index,
                     len(queries),
@@ -1141,7 +1177,7 @@ class SessionApp:
 
         if entry.temporary:
             self._refresh_new_sessions()
-        result = _read_line(self.stdscr, "edit> ", entry.description)
+        result = _read_line(self.stdscr, "edit> ", entry.description, enable_clipboard=True)
         if result is None:
             self._set_message("edit cancelled")
             return
@@ -1334,8 +1370,6 @@ class SessionApp:
             key = self.stdscr.getch()
             if key == -1:
                 continue
-            if key not in (ord("r"), ord("R")):
-                self.refresh_count = 0
             if self.config_editor is not None:
                 self._handle_config_key(key)
                 continue
