@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from session_manager.config import Config, DEFAULTS, load_config
 from session_manager.config_editor import ConfigEditor
-from session_manager.discovery import discover_recent
+from session_manager.discovery import _generic_json_session, discover_recent
 from session_manager.model import parse_line
 from session_manager.process import ProcessMatch, find_process
 from session_manager.storage import load_document
@@ -589,6 +589,28 @@ class SessionManagerTests(unittest.TestCase):
             from session_manager.discovery import available_harnesses
 
             self.assertEqual(available_harnesses(), ("omp", "goose"))
+
+    def test_cursor_prompt_cleanup_is_runner_specific(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cursor.jsonl"
+            path.write_text(
+                json.dumps(
+                    {
+                        "role": "user",
+                        "content": "<timestamp>2026-11-16T12:00:00Z</timestamp>"
+                        "<user_query> Fix the cursor prompt </user_query>",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            cursor = _generic_json_session("cursor-agent", path, "cursor-id")
+            other = _generic_json_session("agent", path, "agent-id")
+        assert cursor is not None
+        assert other is not None
+        self.assertEqual(cursor.description, "Fix the cursor prompt")
+        self.assertIn("<timestamp>", other.description)
+        self.assertIn("<user_query>", other.description)
 
     def test_discover_recent_merges_harnesses_by_update_time(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

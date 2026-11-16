@@ -223,6 +223,10 @@ def _generic_json_session(
                 updated = _timestamp_ns(record[key], updated)
     if not record_id:
         record_id = path.stem
+    if runner == "cursor-agent":
+        prompt = re.sub(r"<timestamp>.*?</timestamp>", "", prompt, flags=re.DOTALL)
+        prompt = re.sub(r"<user_query>(.*?)</user_query>", r"\1", prompt, flags=re.DOTALL)
+        prompt = _clean_text(prompt)
     return _discovered(runner, path, record_id, prompt or title, updated)
 
 
