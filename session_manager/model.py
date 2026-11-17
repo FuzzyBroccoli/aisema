@@ -35,6 +35,7 @@ class SessionEntry:
     active: bool = False
     last_used_ns: int = 0
     user_queries: list[str] = field(default_factory=list)
+    inspection_items: list[tuple[int, str, str]] = field(default_factory=list)
     _dirty: bool = field(default=False, repr=False)
 
     @property

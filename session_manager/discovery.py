@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 import json
 import os
@@ -26,6 +26,8 @@ class DiscoveredSession:
     runner: str
     resume_command: str
     user_queries: tuple[str, ...] = ()
+    inspection_items: tuple[tuple[int, str, str], ...] = ()
+
 
 def available_harnesses() -> tuple[str, ...]:
     """Return supported harness commands available without starting them."""
@@ -111,6 +113,7 @@ def _discovered(
     description: str,
     updated_ns: int,
     user_queries: tuple[str, ...] = (),
+    inspection_items: tuple[tuple[int, str, str], ...] = (),
 ) -> DiscoveredSession:
     return DiscoveredSession(
         path=path,
@@ -120,14 +123,19 @@ def _discovered(
         runner=runner,
         resume_command=_resume_command(runner, session_id),
         user_queries=user_queries,
+        inspection_items=inspection_items,
     )
 
 
-def _metadata(path: Path) -> Optional[DiscoveredSession]:
+def _metadata(
+    path: Path,
+    recap_items: tuple[tuple[int, str, str], ...] = (),
+) -> Optional[DiscoveredSession]:
     session_id = ""
     title = ""
     prompt = ""
     prompts: list[str] = []
+    inspection_items: list[tuple[int, str, str]] = list(recap_items)
     try:
         updated_ns = path.stat().st_mtime_ns
         with path.open("r", encoding="utf-8") as handle:
@@ -149,6 +157,8 @@ def _metadata(path: Path) -> Optional[DiscoveredSession]:
                     if candidate:
                         prompt = candidate
                         prompts.append(candidate)
+                        timestamp = _timestamp_ns(record.get("timestamp"), updated_ns)
+                        inspection_items.append((timestamp, "query", candidate))
     except (OSError, UnicodeError):
         return None
 
@@ -165,18 +175,53 @@ def _metadata(path: Path) -> Optional[DiscoveredSession]:
         prompt or title or "OMP session",
         updated_ns,
         tuple(prompts),
+        tuple(sorted(inspection_items, key=lambda item: item[0])),
     )
+
+
+def _omp_recaps() -> dict[str, tuple[tuple[int, str, str], ...]]:
+    path = _agent_root() / "history.db"
+    if not path.is_file():
+        return {}
+    database: Optional[sqlite3.Connection] = None
+    try:
+        database = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        rows = database.execute(
+            "SELECT session_id, recap, created_at "
+            "FROM session_recaps ORDER BY created_at, id"
+        ).fetchall()
+    except (OSError, sqlite3.Error):
+        return {}
+    finally:
+        if database is not None:
+            database.close()
+    recaps: dict[str, list[tuple[int, str, str]]] = {}
+    for session_id, recap, created_at in rows:
+        if not isinstance(session_id, str) or not isinstance(recap, str):
+            continue
+        timestamp = _timestamp_ns(created_at, 0)
+        recaps.setdefault(session_id, []).append((timestamp, "recap", recap))
+    return {session_id: tuple(items) for session_id, items in recaps.items()}
 
 
 def _discover_omp() -> list[DiscoveredSession]:
     root = _session_root()
     if not root.exists():
         return []
-    return [
-        item
-        for path in root.rglob("*.jsonl")
-        if (item := _metadata(path)) is not None
-    ]
+    recaps = _omp_recaps()
+    result: list[DiscoveredSession] = []
+    for path in root.rglob("*.jsonl"):
+        item = _metadata(path)
+        if item is None:
+            continue
+        inspection_items = tuple(
+            sorted(
+                (*item.inspection_items, *recaps.get(item.session_id, ())),
+                key=lambda event: event[0],
+            )
+        )
+        result.append(replace(item, inspection_items=inspection_items))
+    return result
 
 
 def _json_records(path: Path) -> Optional[list[dict[str, Any]]]:
@@ -216,6 +261,7 @@ def _generic_json_session(
         return None
     prompt = ""
     prompts: list[str] = []
+    inspection_items: list[tuple[int, str, str]] = []
     title = ""
     record_id = session_id or ""
     updated = path.stat().st_mtime_ns
@@ -234,6 +280,8 @@ def _generic_json_session(
         if candidate:
             prompt = candidate
             prompts.append(candidate)
+            timestamp = _timestamp_ns(record.get("timestamp"), updated)
+            inspection_items.append((timestamp, "query", candidate))
         for key in ("sessionId", "session_id", "id"):
             if not record_id and isinstance(record.get(key), str):
                 record_id = record[key]
@@ -245,7 +293,15 @@ def _generic_json_session(
                 updated = _timestamp_ns(record[key], updated)
     if not record_id:
         record_id = path.stem
-    return _discovered(runner, path, record_id, prompt or title, updated, tuple(prompts))
+    return _discovered(
+        runner,
+        path,
+        record_id,
+        prompt or title,
+        updated,
+        tuple(prompts),
+        tuple(sorted(inspection_items, key=lambda item: item[0])),
+    )
 
 
 def _discover_copilot() -> list[DiscoveredSession]:
@@ -428,6 +484,7 @@ def discover_recent(
                 source="discovered",
                 last_used_ns=item.updated_ns,
                 user_queries=list(item.user_queries),
+                inspection_items=list(item.inspection_items),
             )
         )
     return result

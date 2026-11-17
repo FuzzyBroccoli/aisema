@@ -457,9 +457,16 @@ class SessionApp:
     def _set_message(self, message: str, error: bool = False) -> None:
         self.message = message
         self.message_is_error = error
-    def _queries_for_entry(self, entry: SessionEntry) -> list[str]:
-        if entry.user_queries or not entry.session_id:
-            return entry.user_queries
+    def _inspection_items_for_entry(self, entry: SessionEntry) -> list[tuple[int, str, str]]:
+        if entry.inspection_items:
+            return entry.inspection_items
+        if entry.user_queries:
+            return [
+                (index, "query", query)
+                for index, query in enumerate(entry.user_queries)
+            ]
+        if not entry.session_id:
+            return []
         try:
             discovered = discover_recent("all", runners=(entry.runner,))
         except (OSError, ValueError):
@@ -467,7 +474,8 @@ class SessionApp:
         for candidate in discovered:
             if candidate.session_id == entry.session_id:
                 entry.user_queries = candidate.user_queries
-                return entry.user_queries
+                entry.inspection_items = list(candidate.inspection_items)
+                return entry.inspection_items
         return []
 
     def _show_more(self) -> None:
@@ -475,11 +483,15 @@ class SessionApp:
         if entry is None:
             self._set_message("no session selected", True)
             return
-        queries = self._queries_for_entry(entry)
+        items = self._inspection_items_for_entry(entry)
         height, width = self.stdscr.getmaxyx()
         description = entry.description or "(empty description)"
+        latest_recap = next(
+            (text for _, kind, text in reversed(items) if kind == "recap"),
+            None,
+        )
         desired_width = max(
-            [len(line) for line in [description, *queries]] + [24]
+            [len(line) for line in [description, *(text for _, _, text in items)]] + [24]
         ) + 4
         popup_width = min(max(3, width - 2), max(3, desired_width))
         popup_height = max(3, height - 2)
@@ -491,23 +503,29 @@ class SessionApp:
             self._set_message("terminal is too small for session details", True)
             return
         popup.keypad(True)
-        query_index: Optional[int] = None
+        item_index: Optional[int] = None
         try:
             while True:
                 content_width = max(1, popup_width - 4)
                 lines = ["Description"]
                 lines.extend(textwrap.wrap(description, width=content_width) or [""])
                 lines.append("")
-                if queries and query_index is not None:
-                    lines.append(f"User query {query_index + 1}/{len(queries)}")
-                    lines.extend(
-                        textwrap.wrap(queries[query_index], width=content_width) or [""]
-                    )
-                elif queries:
-                    lines.append(f"{len(queries)} user queries recorded")
-                    lines.append("Use Up/Down or Page Up/Page Down to browse queries")
+                if items and item_index is not None:
+                    _, kind, text = items[item_index]
+                    label = "Recap" if kind == "recap" else "User query"
+                    lines.append(f"{label} {item_index + 1}/{len(items)}")
+                    lines.extend(textwrap.wrap(text, width=content_width) or [""])
+                elif latest_recap is not None:
+                    lines.append("Latest recap")
+                    lines.extend(textwrap.wrap(latest_recap, width=content_width) or [""])
+                    if items:
+                        lines.append("")
+                        lines.append(f"{len(items)} recaps/user queries recorded")
+                elif items:
+                    lines.append(f"{len(items)} recaps/user queries recorded")
+                    lines.append("Use Up/Down or Page Up/Page Down to browse")
                 else:
-                    lines.append("No user queries recorded")
+                    lines.append("No recaps or user queries recorded")
                 popup.erase()
                 try:
                     popup.box()
@@ -515,21 +533,21 @@ class SessionApp:
                     pass
                 for offset, line in enumerate(lines[: max(1, popup_height - 2)], start=1):
                     _safe_addstr(popup, offset, 2, line, max(1, popup_width - 4))
-                footer = "Up/Down/PgUp/PgDn/Home/End/M  q/Esc close"
+                footer = "Up/Down/PgUp/PgDn(5)/Home/End/M  q/Esc close"
                 _safe_addstr(popup, popup_height - 1, 2, footer, max(1, popup_width - 4), curses.A_DIM)
                 popup.refresh()
                 key = popup.getch()
                 if key in (ord("q"), ord("Q"), 27):
                     return
                 if key in (ord("m"), ord("M")):
-                    if query_index is not None and query_index == len(queries) - 1:
+                    if item_index is not None and item_index == len(items) - 1:
                         return
                     key = curses.KEY_DOWN
-                query_index = _inspection_query_index(
-                    query_index,
-                    len(queries),
+                item_index = _inspection_query_index(
+                    item_index,
+                    len(items),
                     key,
-                    max(1, popup_height - 4),
+                    5,
                 )
         finally:
             del popup

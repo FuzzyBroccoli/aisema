@@ -145,6 +145,7 @@ The parser specifically supports the command shapes represented by `_ENTRY_RE`; 
 | `active` | Whether a matching running process was found. |
 | `last_used_ns` | Last update time as Unix nanoseconds; `0` means unknown. |
 | `user_queries` | Ordered user prompts extracted from discovered session metadata for the `M` popup. |
+| `inspection_items` | Timestamp-ordered `(timestamp, kind, text)` recap/query items for the `M` popup. |
 | `_dirty` | Internal flag indicating that serialization must be rebuilt. |
 
 Computed properties:
@@ -371,7 +372,7 @@ Shortcuts are case-insensitive unless noted:
 | `S` | Choose a first- or second-layer sort mode from a popup; press `S` in the popup to switch layers. |
 | `C` | Open configuration editor. |
 | `X` / `T` | Toggle throwaway marker. |
-| `M` | Show full description and recorded user queries; Up/Down/Page Up/Page Down/Home/End navigate queries, `M` pages down and closes at the last query, and `q`/Escape closes the popup. |
+| `M` | Show full description plus ordered recaps and user queries; the opening page includes the latest recap when available, Up/Down move one item, Page Up/Page Down skip five items, `M` moves down and closes at the last item, and `q`/Escape closes the popup. |
 | `R` | Refresh discovery by requesting five sessions beyond the amount currently loaded in the session list. |
 | `H` | Show help. |
 | Enter | Launch or focus selected session. |

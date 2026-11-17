@@ -1,6 +1,7 @@
 import curses
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -95,7 +96,7 @@ class SessionManagerTests(unittest.TestCase):
         class Popup(Screen):
             def __init__(self) -> None:
                 super().__init__()
-                self.keys = iter([ord("m"), ord("m"), ord("q")])
+                self.keys = iter([ord("m"), ord("m"), ord("m"), ord("m")])
                 self.drawn: list[str] = []
 
             def addnstr(self, y: int, x: int, text: str, width: int, attr: int = 0) -> None:
@@ -109,7 +110,11 @@ class SessionManagerTests(unittest.TestCase):
             document = load_document(path)
             entry = parse_line("omp --resume inspect Inspect this session", 1)
             assert entry is not None
-            entry.user_queries = ["First question", "Second question", "Latest question"]
+            entry.inspection_items = [
+                (1, "query", "First question"),
+                (2, "recap", "Middle recap"),
+                (3, "recap", "Latest recap"),
+            ]
             document.lines.append(entry)
             screen = Screen()
             popup = Popup()
@@ -118,7 +123,8 @@ class SessionManagerTests(unittest.TestCase):
                     with patch("session_manager.tui.process.refresh_active"):
                         run_tui(document, Config(DEFAULTS, path))
             self.assertIn("Inspect this session", popup.drawn)
-            self.assertIn("Second question", popup.drawn)
+            self.assertIn("Middle recap", popup.drawn)
+            self.assertIn("Latest recap", popup.drawn)
     def test_description_editor_cut_paste_shortcuts(self) -> None:
         class Screen:
             def __init__(self, keys: list[int]) -> None:
@@ -1015,6 +1021,50 @@ class SessionManagerTests(unittest.TestCase):
             session = _generic_json_session("agent", path)
         assert session is not None
         self.assertEqual(session.user_queries, ("First question", "Latest question"))
+    def test_omp_discovery_merges_recaps_with_queries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session_path = root / "sessions" / "project" / "session.jsonl"
+            session_path.parent.mkdir(parents=True)
+            session_path.write_text(
+                json.dumps({"type": "session", "id": "omp-id"}) + "\n"
+                + json.dumps(
+                    {
+                        "type": "message",
+                        "timestamp": "1970-01-01T00:00:03Z",
+                        "message": {"role": "user", "content": "Question"},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            database = sqlite3.connect(root / "history.db")
+            database.execute(
+                "CREATE TABLE session_recaps ("
+                "id INTEGER PRIMARY KEY, session_id TEXT, cwd TEXT, "
+                "recap TEXT, created_at INTEGER)"
+            )
+            database.executemany(
+                "INSERT INTO session_recaps(session_id, cwd, recap, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                [
+                    ("omp-id", "/", "First recap", 2),
+                    ("omp-id", "/", "Latest recap", 4),
+                ],
+            )
+            database.commit()
+            database.close()
+            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(root)}):
+                entries = discover_recent("all", runners=("omp",))
+        self.assertEqual(
+            entries[0].inspection_items,
+            [
+                (2_000_000_000, "recap", "First recap"),
+                (3_000_000_000, "query", "Question"),
+                (4_000_000_000, "recap", "Latest recap"),
+            ],
+        )
+
 
     def test_inspection_query_navigation(self) -> None:
         self.assertEqual(_inspection_query_index(None, 3, curses.KEY_UP, 2), 2)
@@ -1022,6 +1072,8 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(_inspection_query_index(1, 3, curses.KEY_DOWN, 2), 2)
         self.assertEqual(_inspection_query_index(2, 3, curses.KEY_PPAGE, 2), 0)
         self.assertEqual(_inspection_query_index(0, 3, curses.KEY_NPAGE, 2), 2)
+        self.assertEqual(_inspection_query_index(4, 20, curses.KEY_NPAGE, 5), 9)
+        self.assertEqual(_inspection_query_index(9, 20, curses.KEY_PPAGE, 5), 4)
         self.assertEqual(_inspection_query_index(2, 3, curses.KEY_HOME, 2), 0)
         self.assertEqual(_inspection_query_index(0, 3, curses.KEY_END, 2), 2)
 
