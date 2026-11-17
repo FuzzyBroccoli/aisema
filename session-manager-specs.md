@@ -297,7 +297,7 @@ A D X N
 
 The default date format is `%d.%m.%Y`, displayed as `dd.mm.yyyy`. Any Python `strftime` format string is accepted through the `date_format` setting. Invalid/unsupported timestamp conversion returns an empty display string; the configured format is otherwise passed to `datetime.strftime()`.
 
-The TUI refreshes active process state and pending new-session discovery approximately once per second while drawing. Focusing a tracked temporary tmux pane also triggers an immediate discovery refresh. Rebuilding preserves the selected object where possible and keeps the selected row in the visible scroll range.
+The TUI refreshes active process state and pending new-session discovery at the configured `session_list_update_interval` while drawing. Process matching uses one current-user process and terminal-session snapshot per refresh round. Focusing a tracked temporary tmux pane also triggers an immediate discovery refresh. Rebuilding preserves the selected object where possible and keeps the selected row in the visible scroll range.
 
 ## 9. Configuration specification
 
@@ -311,7 +311,7 @@ The loader:
 - Treats `#` and `;` entries as comments.
 - Appends missing known defaults as comments.
 - Merges active values over `DEFAULTS`.
-Normalizes invalid `display_command`, `show_throwaway`, and `show_done` values to their defaults; an empty `sessions_file` uses its default.
+Normalizes invalid `display_command`, `show_throwaway`, `show_done`, and `session_list_update_interval` values to their defaults; an empty `sessions_file` uses its default. `session_list_update_interval` accepts numeric values from `0.001` through `600` seconds.
 
 Current defaults:
 
@@ -321,6 +321,7 @@ show_throwaway=false
 show_done=true
 date_format=%d.%m.%Y
 show_last_used_date=false
+session_list_update_interval=2
 color_letters=yellow
 color_runner=pink
 color_runner_sessionid=light_gray
@@ -341,6 +342,7 @@ Properties:
 - `show_throwaway=false` hides throwaway rows unless temporarily overridden by a local toggle.
 - `show_done=false` hides rows whose description ends with ` Done.`.
 - `sessions_file` selects the session log when `--file` is not supplied.
+- `session_list_update_interval` controls active-session/list refreshes in seconds and accepts values from `0.001` through `600`.
 
 The config editor lists every known default key. It supports:
 

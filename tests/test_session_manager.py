@@ -5,13 +5,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from session_manager.config import Config, DEFAULTS, load_config
 from session_manager.config_editor import ConfigEditor
 from session_manager.discovery import _generic_json_session, _resume_command, discover_recent
 from session_manager.model import parse_line
-from session_manager.process import ProcessMatch, find_process
+from session_manager.process import ProcessMatch, find_process, iter_processes, refresh_active
 from session_manager.storage import load_document
 from session_manager import tmux
 from session_manager.tui import (
@@ -564,6 +565,40 @@ class SessionManagerTests(unittest.TestCase):
                     with patch("session_manager.process._process_tty", return_value="/dev/pts/7"):
                         self.assertEqual(find_process(entry), ProcessMatch(42, ("omp",)))
 
+    def test_process_scan_limits_to_current_user(self) -> None:
+        class ProcDir:
+            def __init__(self, name: str, uid: int) -> None:
+                self.name = name
+                self.uid = uid
+
+            def stat(self) -> SimpleNamespace:
+                return SimpleNamespace(st_uid=self.uid)
+
+        current = ProcDir("101", 1000)
+        foreign = ProcDir("202", 2000)
+        with patch("session_manager.process.Path.iterdir", return_value=[current, foreign]):
+            with patch("session_manager.process.os.getuid", return_value=1000):
+                with patch(
+                    "session_manager.process._read_argv",
+                    side_effect=lambda pid: ("omp", str(pid)),
+                ):
+                    self.assertEqual(list(iter_processes()), [ProcessMatch(101, ("omp", "101"))])
+
+    def test_refresh_active_reuses_one_process_snapshot(self) -> None:
+        first = parse_line("omp --resume first First", 1)
+        second = parse_line("omp --resume second Second", 2)
+        assert first is not None
+        assert second is not None
+        with patch(
+            "session_manager.process.iter_processes",
+            return_value=[ProcessMatch(42, ("omp", "--resume", "first"))],
+        ) as scan:
+            with patch("session_manager.process._terminal_session_markers", return_value=()):
+                refresh_active([first, second])
+        self.assertTrue(first.active)
+        self.assertFalse(second.active)
+        scan.assert_called_once_with()
+
     def test_storage_preserves_blank_lines_and_separator(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.txt"
@@ -748,6 +783,7 @@ class SessionManagerTests(unittest.TestCase):
                 },
             )
             self.assertFalse(config.show_last_used_date)
+            self.assertEqual(config.session_list_update_interval, 2.0)
             self.assertEqual(config.get("date_format"), "%d.%m.%Y")
             self.assertEqual(
                 config.sessions_file,
@@ -758,6 +794,7 @@ class SessionManagerTests(unittest.TestCase):
             self.assertIn("# show_throwaway=false", text)
             self.assertIn("# show_done=true", text)
             self.assertIn("# show_last_used_date=false", text)
+            self.assertIn("# session_list_update_interval=2", text)
             path.write_text(
                 "display_command=short\nshow_throwaway=true\nshow_done=false\nshow_last_used_date=true\n"
                 "date_format=%Y-%m-%d\n",
@@ -773,6 +810,18 @@ class SessionManagerTests(unittest.TestCase):
             config = load_config(path)
             self.assertTrue(config.hide_commands)
             self.assertIn("# color_runner_parameters=blue", path.read_text(encoding="utf-8"))
+    def test_session_list_update_interval_accepts_bounded_numbers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config"
+            for value in ("0.001", "600"):
+                path.write_text(f"session_list_update_interval={value}\n", encoding="utf-8")
+                config = load_config(path)
+                self.assertEqual(config.session_list_update_interval, float(value))
+            for value in ("0", "0.0009", "600.001", "nan", "inf", "invalid"):
+                path.write_text(f"session_list_update_interval={value}\n", encoding="utf-8")
+                config = load_config(path)
+                self.assertEqual(config.session_list_update_interval, 2.0)
+
     def test_show_done_false_filters_done_sessions(self) -> None:
         class Window:
             def getmaxyx(self) -> tuple[int, int]:

@@ -1096,7 +1096,11 @@ class SessionApp:
 
     def _draw(self) -> None:
         now = time.monotonic()
-        if now - self.last_active_refresh >= 1.0:
+        if (
+            self.config_editor is None
+            and not self.help_visible
+            and now - self.last_active_refresh >= self.config.session_list_update_interval
+        ):
             process.refresh_active(self.document.entries)
             self._refresh_new_sessions()
             self.last_active_refresh = now

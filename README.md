@@ -153,6 +153,7 @@ show_throwaway=false
 show_done=true
 date_format=%d.%m.%Y
 show_last_used_date=false
+session_list_update_interval=2
 color_letters=yellow
 color_runner=pink
 color_runner_sessionid=light_gray
@@ -171,7 +172,7 @@ color_error=red
 - `short`: display the runner and final hyphen-separated session-ID component.
 - `none`: hide the command column.
 
-Set `show_done=false` to remove entries whose description ends with ` Done.` from the session list. The default is `true`.
+Set `show_done=false` to remove entries whose description ends with ` Done.` from the session list. The default is `true`. `session_list_update_interval` controls active-session and pending-session list updates in seconds; it accepts values from `0.001` through `600` and defaults to `2`.
 
 Use `C` or `:config` to edit settings interactively. Configuration changes are written atomically and reloaded live.
 

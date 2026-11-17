@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Dict
-
 from .model import DEFAULT_DATE_FORMAT
 
 DEFAULT_SESSIONS_FILE = Path.home() / ".config" / "aisema" / "sessions.txt"
@@ -15,6 +15,7 @@ DEFAULTS: Dict[str, str] = {
     "show_done": "true",
     "date_format": DEFAULT_DATE_FORMAT,
     "show_last_used_date": "false",
+    "session_list_update_interval": "2",
     "color_letters": "yellow",
     "color_runner": "pink",
     "color_runner_sessionid": "light_gray",
@@ -59,6 +60,10 @@ class Config:
     @property
     def show_last_used_date(self) -> bool:
         return self.get("show_last_used_date").lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def session_list_update_interval(self) -> float:
+        return float(self.get("session_list_update_interval"))
 
 
 class ConfigError(ValueError):
@@ -117,6 +122,15 @@ def load_config(path: Path) -> Config:
         merged["show_throwaway"] = DEFAULTS["show_throwaway"]
     if merged["show_done"].lower() not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
         merged["show_done"] = DEFAULTS["show_done"]
+    interval_value = merged["session_list_update_interval"].strip()
+    try:
+        update_interval = float(interval_value)
+    except ValueError:
+        update_interval = 0.0
+    if not math.isfinite(update_interval) or not 0.001 <= update_interval <= 600:
+        merged["session_list_update_interval"] = DEFAULTS["session_list_update_interval"]
+    else:
+        merged["session_list_update_interval"] = interval_value
     if not merged["sessions_file"].strip():
         merged["sessions_file"] = DEFAULTS["sessions_file"]
     return Config(merged, path)

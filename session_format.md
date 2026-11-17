@@ -44,7 +44,7 @@ For discovered sessions, the default description is the latest user prompt from 
 
 
 The `show_throwaway` setting controls whether throwaway entries are visible. Hidden throwaway entries are also excluded from searches until enabled. `show_done=false` filters entries whose description ends with ` Done.` from the session list; the default is `true`.
-When `show_last_used_date=true`, the list inserts the last-used timestamp (`%d.%m.%Y` by default, local time) between the command column and description. `date_format` accepts a Python `strftime` format string, and `:date` toggles this display live; `:date on` and `:date off` select an explicit state without changing the saved configuration.
+When `show_last_used_date=true`, the list inserts the last-used timestamp (`%d.%m.%Y` by default, local time) between the command column and description. `date_format` accepts a Python `strftime` format string, and `:date` toggles this display live; `:date on` and `:date off` select an explicit state without changing the saved configuration. `session_list_update_interval` controls active-session and pending-session list updates in seconds; it accepts values from `0.001` through `600` and defaults to `2`.
 
 The configuration file is `~/.config/aisema/config`. On first run it is created with every supported setting commented out at its default value. Missing settings are appended as commented defaults without replacing existing settings. Current settings are:
 
@@ -55,6 +55,7 @@ The configuration file is `~/.config/aisema/config`. On first run it is created 
 # date_format=%d.%m.%Y
 # show_last_used_date=false
 # color_letters=yellow
+# session_list_update_interval=2
 # color_runner=pink
 # color_runner_sessionid=light_gray
 # color_runner_parameters=blue
