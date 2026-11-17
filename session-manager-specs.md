@@ -50,7 +50,7 @@ flowchart TD
 - Defines CLI defaults and argument parsing.
 - Loads configuration before selecting the session document path.
 - Calls `load_document()`.
-- Calls `available_harnesses()` and, when a selector is supplied, `discover_recent()`.
+- Calls `available_harnesses()` and `discover_recent()` for selector-driven discovery or active-session refresh.
 - Calls `run_tui()`.
 
 ### `session_manager/model.py`
@@ -85,12 +85,12 @@ Provides:
 - Per-harness session discovery adapters.
 - Timestamp normalization to nanoseconds.
 - Description extraction from latest user prompts or titles.
-- Preservation of all extracted user queries for the `M` inspection popup.
+- Preservation of all extracted user queries and OMP recaps as timestamp-ordered inspection items for the `M` popup.
 - Last-used timestamp refresh for existing entries.
 
 ### `session_manager/process.py`
 
-Finds active sessions by scanning `/proc`, matching session ID and runner, and falling back to OMP terminal-session metadata when the session ID is not present in the process command line.
+Finds active sessions by scanning only current-user `/proc` entries, indexing one process/terminal snapshot per refresh round, matching session ID and runner, and falling back to current-user OMP terminal-session metadata when the session ID is not present in the process command line.
 
 ### `session_manager/tmux.py`
 
@@ -219,7 +219,7 @@ Only commands found by `shutil.which()` are considered installed for normal disc
 - `agent`: `~/.agent/sessions`, `~/.agent/history`, and `~/.config/agent/sessions`, recursive JSON/JSONL files.
 - `cursor-agent`: `~/.cursor/projects/*/agent-transcripts/*/*.jsonl`.
 - `opencode`: first usable SQLite database at `~/.local/share/opencode/opencode.db` or `~/.config/opencode/opencode.db`; reads root sessions from `session`.
-- `omp`: `$PI_CODING_AGENT_DIR/sessions`, or `~/.omp/agent/sessions`; recursively reads JSONL files.
+- `omp`: `$PI_CODING_AGENT_DIR/sessions`, or `~/.omp/agent/sessions`; recursively reads JSONL files and joins recaps from `history.db.session_recaps`.
 - `goose`: `~/.local/share/goose/sessions` and `~/.config/goose/sessions`, including `sessions.db` and JSONL files.
 
 ### Normalization
@@ -228,6 +228,7 @@ Only commands found by `shutil.which()` are considered installed for normal disc
 - Numeric timestamps are interpreted heuristically as seconds, milliseconds, microseconds, or nanoseconds based on magnitude.
 - ISO timestamps are accepted, including trailing `Z`.
 - Descriptions prefer the latest user prompt; title/name/description metadata is used as fallback.
+- User queries and OMP recaps are retained as timestamp-ordered `(timestamp, kind, text)` inspection items.
 - Empty descriptions fall back to `<runner> session` where necessary.
 - Resume command generation is special-cased for Cursor Agent, OpenCode, and Goose:
 
@@ -273,7 +274,8 @@ After sorting, `SessionApp.rebuild()` applies visibility filtering and search fi
 
 `SessionApp` initializes with:
 
-- `sort_mode="status"`.
+- `first_sort_mode="status"`.
+- `sort_mode="date"`.
 - `sort_descending=False`.
 - Empty query.
 - No selected row and no scroll offset.
@@ -352,6 +354,7 @@ The config editor lists every known default key. It supports:
 - Pickers for `display_command` and `color_*` values.
 - Text editing for other values, including `date_format`.
 - `;` or `#` to activate/comment the selected setting.
+- Changing a value also activates the selected setting if it was commented.
 - Immediate atomic save and live reload after each change.
 - When enough space exists, live examples include throwaway, active (`A`), selected, unsaved (`N`), done, and normal rows; all examples that fit are rendered, and rows are omitted when the terminal is too short.
 - `q`, `Q`, or Escape to leave config mode.
@@ -443,6 +446,8 @@ The current test suite covers:
 - Live date toggling.
 - Harness availability lookup.
 - Cross-harness and OMP discovery, prompt extraction, and timestamp ordering.
+- OMP recap merging, ordered inspection items, M popup navigation, and five-item paging.
+- Session-list interval validation and current-user process snapshot reuse.
 - Supported command shapes.
 - CLI behavior without a discovery selector.
 

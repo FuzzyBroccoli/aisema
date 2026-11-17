@@ -18,6 +18,7 @@ A small curses TUI for browsing, searching, sorting, editing, and resuming codin
   - `omp`
   - `goose`
 - Detect active OMP terminal sessions through terminal-session metadata.
+- Show ordered OMP recaps and user queries in the `M` popup.
 - Sort with independent primary and secondary sort layers.
 - Mark sessions done or throwaway without deleting history.
 - Show full commands, short runner/ID commands, or hide the command column.
@@ -55,7 +56,7 @@ The session file is created if it does not exist. Its path can be changed with `
 
 ## Discover recent sessions
 
-Without a positional selector, startup loads only the session file. Pass a positive count to discover that many newest sessions across installed supported harnesses, or use `all` to discover every available session:
+Without a positional selector, startup loads the configured session file and adds currently active discovered sessions. Pass a positive count to discover that many newest sessions across installed supported harnesses, or use `all` to discover every available session:
 
 ```sh
 ./aisema 20
@@ -174,7 +175,7 @@ color_error=red
 
 Set `show_done=false` to remove entries whose description ends with ` Done.` from the session list. The default is `true`. `session_list_update_interval` controls active-session and pending-session list updates in seconds; it accepts values from `0.001` through `600` and defaults to `2`.
 
-Use `C` or `:config` to edit settings interactively. Configuration changes are written atomically and reloaded live.
+Use `C` or `:config` to edit settings interactively. Changing a value also activates a commented setting. Configuration changes are written atomically and reloaded live.
 
 ## Development
 

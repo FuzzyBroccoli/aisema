@@ -1053,7 +1053,7 @@ class SessionApp:
             "  S             choose sort mode",
             "  C             open config",
             "  X/T           toggle throwaway marker",
-            "  M             show description and user queries",
+            "  M             show description, recaps, and user queries",
             "  R             refresh; repeated presses discover 5 more sessions",
             "  H             show help",
             "",

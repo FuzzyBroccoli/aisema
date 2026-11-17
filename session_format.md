@@ -41,6 +41,7 @@ The manager recognizes `<runner> [--flag ...] --resume <id> [--flag ...]`, `<run
 With no positional selector, startup uses the configured session file. An optional positional integer discovers that many newest sessions across installed `copilot`, `agent`, `cursor-agent`, `opencode`, `omp`, and `goose` harnesses. `all` is case-insensitive and discovers every available session. Discovery uses the fast executable lookup for installed-harness detection, then merges all selected harnesses and sorts them newest-first by update time. Discovered entries are temporary until changed. A newly created `N` session is tracked until its newly generated session ID is discovered; the command is then replaced in memory with the harness-specific resume command and remains ephemeral. The new-session picker omits `cursor-agent` when the shorter `agent` launcher is also installed; existing stored commands are unchanged. Discovery runs after launch, during the normal refresh loop, and when focusing …
 
 For discovered sessions, the default description is the latest user prompt from the session record when available; otherwise the harness title or session name is used.
+For OMP sessions, recap records from the agent history database are combined with user queries and shown by the `M` popup in recorded timestamp order. The opening page shows the latest recap below the description when available.
 
 
 The `show_throwaway` setting controls whether throwaway entries are visible. Hidden throwaway entries are also excluded from searches until enabled. `show_done=false` filters entries whose description ends with ` Done.` from the session list; the default is `true`.
@@ -54,8 +55,8 @@ The configuration file is `~/.config/aisema/config`. On first run it is created 
 # show_done=true
 # date_format=%d.%m.%Y
 # show_last_used_date=false
-# color_letters=yellow
 # session_list_update_interval=2
+# color_letters=yellow
 # color_runner=pink
 # color_runner_sessionid=light_gray
 # color_runner_parameters=blue
