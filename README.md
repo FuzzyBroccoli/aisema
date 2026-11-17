@@ -180,6 +180,22 @@ Use `C` or `:config` to edit settings interactively. Changing a value also activ
 
 ## Development
 
+Aisema is entirely vibe-coded. The implementation is intentionally open for inspection, experimentation, and modification.
+
+You are welcome to fork the project and change it for your own needs. Pull requests are not accepted for this project. Instead, you can propose changes as prompts that describe the requested behavior clearly enough to implement and verify.
+
+Prompt proposals are preferred because they preserve the project's development workflow and allow the behavior, edge cases, and user experience to be discussed before implementation.
+
+Example prompt:
+
+> In the session list M popup, add a `P` key that prints all displayed text formatted as a spiral. Keep the existing navigation behavior unchanged and make the output usable from a terminal.
+
+Another example:
+
+> In the config screen, add a `rainbow_splash=true/false` setting. When enabled, randomize the TUI colors on each program start. The setting must default to `false`, be included in the commented defaults, and be editable through the config screen.
+
+Useful local checks:
+
 Run the test suite:
 
 ```sh
