@@ -1,4 +1,5 @@
 # Aisema
+![Aisema banner](aisema_banner-1280x640.jpg)
 
 A small curses TUI for browsing, searching, sorting, editing, and resuming coding-agent sessions.
 
