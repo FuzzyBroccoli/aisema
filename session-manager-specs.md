@@ -86,11 +86,12 @@ Provides:
 - Timestamp normalization to nanoseconds.
 - Description extraction from latest user prompts or titles.
 - Preservation of all extracted user queries and OMP recaps as timestamp-ordered inspection items for the `M` popup.
+- Codex rollout filename validation, JSONL prompt normalization, duplicate-thread selection, and compressed-rollout fallback.
 - Last-used timestamp refresh for existing entries.
 
 ### `session_manager/process.py`
 
-Finds active sessions by scanning only current-user `/proc` entries, indexing one process/terminal snapshot per refresh round, matching session ID and runner, and falling back to current-user OMP terminal-session metadata when the session ID is not present in the process command line.
+Finds active sessions by scanning only current-user `/proc` entries, indexing one process/terminal snapshot per refresh round, matching session ID and runner, and falling back to current-user OMP terminal-session metadata when the session ID is not present in the process command line. Codex resumed processes use this same generic runner/argv matching; no Codex-specific process path exists.
 
 ### `session_manager/tmux.py`
 
@@ -125,6 +126,7 @@ Recognized command patterns:
 <runner> [--flag ...] --resume=<session-id> [--flag ...]
 <runner> [--flag ...] --session <session-id> [--flag ...]
 goose [--flag ...] session resume --name <session-id> [--flag ...]
+codex resume <session-id>
 ```
 
 The parser specifically supports the command shapes represented by `_ENTRY_RE`; the launch command is otherwise preserved exactly for recognized entries.
@@ -150,7 +152,7 @@ The parser specifically supports the command shapes represented by `_ENTRY_RE`; 
 
 Computed properties:
 
-- `session_id`: ID extracted from `--resume`, `--session`, or `--name`.
+- `session_id`: ID extracted from Codex's positional `resume` token, `--resume`, `--session`, or `--name`.
 - `runner`: basename of the first command token.
 - `short_session_id`: final hyphen-separated component of the session ID.
 - `short_command`: runner plus short ID, or the full command if no ID exists.
@@ -193,9 +195,9 @@ Markers are literal description suffixes:
 ### New-session entries
 
 - Created by the `N` shortcut or `:new session`.
-- Start with `source="temporary"`, command equal to the selected harness name, and description `New <runner> session`. If both `agent` and `cursor-agent` are installed, new-session selection excludes `cursor-agent` in favor of `agent`; existing stored commands are not rewritten.
+- Start with `source="temporary"`, command equal to the selected harness name, and description `New <runner> session`. If both `agent` and `cursor-agent` are installed, new-session selection excludes `cursor-agent` in favor of `agent`; existing stored commands are not rewritten. Codex is selected through the same installed-executable picker.
 - Launch alone does not write the entry to the session file.
-- The TUI records pre-launch known IDs for that runner, polls discovery after launch and during the normal refresh loop, and refreshes discovery when focusing the tracked tmux pane. It replaces the temporary command with the harness-specific resume command when the new ID appears.
+- The TUI records pre-launch known IDs for that runner, polls discovery after launch and during the normal refresh loop, and refreshes discovery when focusing the tracked tmux pane. It replaces the temporary command with the harness-specific resume command when the new ID appears, including `codex resume <id>`.
 - The captured ID remains ephemeral and visible with the `N` marker until the user edits the description.
 - Editing the description materializes the entry into `sessions.txt`, preserving the captured resume command and updated timestamp. Done/throwaway changes alone do not materialize a new-session entry.
 
@@ -208,7 +210,7 @@ Markers are literal description suffixes:
 Supported harness names and discovery order:
 
 ```text
-copilot, agent, cursor-agent, opencode, omp, goose
+copilot, agent, cursor-agent, opencode, omp, goose, codex
 ```
 
 Only commands found by `shutil.which()` are considered installed for normal discovery and new-session selection.
@@ -221,6 +223,7 @@ Only commands found by `shutil.which()` are considered installed for normal disc
 - `opencode`: first usable SQLite database at `~/.local/share/opencode/opencode.db` or `~/.config/opencode/opencode.db`; reads root sessions from `session`.
 - `omp`: `$PI_CODING_AGENT_DIR/sessions`, or `~/.omp/agent/sessions`; recursively reads JSONL files and joins recaps from `history.db.session_recaps`.
 - `goose`: `~/.local/share/goose/sessions` and `~/.config/goose/sessions`, including `sessions.db` and JSONL files.
+- `codex`: `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`, or `~/.codex/sessions/...`; recursively validates canonical JSONL and JSONL.zst rollout filenames.
 
 ### Normalization
 
@@ -230,12 +233,14 @@ Only commands found by `shutil.which()` are considered installed for normal disc
 - Descriptions prefer the latest user prompt; title/name/description metadata is used as fallback.
 - User queries and OMP recaps are retained as timestamp-ordered `(timestamp, kind, text)` inspection items.
 - Empty descriptions fall back to `<runner> session` where necessary.
-- Resume command generation is special-cased for Cursor Agent, OpenCode, and Goose:
+- Codex extracts `session_meta` IDs, validated filename UUIDs, event/response user prompts, and file-mtime update timestamps. Malformed or unknown JSONL records are ignored; `.jsonl.zst` files use filename and mtime fallback only.
+- Resume command generation is special-cased for Cursor Agent, OpenCode, Goose, and Codex:
 
 ```text
 cursor-agent --resume=<id>
 opencode --session <id>
 goose session resume --name <id>
+codex resume <id>
 <other-runner> --resume <id>
 ```
 
@@ -447,6 +452,7 @@ The current test suite covers:
 - Harness availability lookup.
 - Cross-harness and OMP discovery, prompt extraction, and timestamp ordering.
 - OMP recap merging, ordered inspection items, M popup navigation, and five-item paging.
+- Codex rollout discovery, filename fallback, compressed-rollout handling, query inspection, deduplication, parser/resume behavior, generic process matching, and temporary new-session polling.
 - Session-list interval validation and current-user process snapshot reuse.
 - Supported command shapes.
 - CLI behavior without a discovery selector.

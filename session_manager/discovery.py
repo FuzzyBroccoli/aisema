@@ -13,8 +13,15 @@ from typing import Any, Iterable, Optional
 from .model import SessionEntry
 
 
-SUPPORTED_HARNESSES = ("copilot", "agent", "cursor-agent", "opencode", "omp", "goose")
+SUPPORTED_HARNESSES = ("copilot", "agent", "cursor-agent", "opencode", "omp", "goose", "codex")
 _SESSION_ID_RE = re.compile(r"_([A-Za-z0-9-]+)\.jsonl$")
+_CODEX_ROLLOUT_RE = re.compile(
+    r"^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-"
+    r"(?P<thread>[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})"
+    r"(?:_(?P<rollout>[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}))?\.jsonl(?:\.zst)?$"
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +48,11 @@ def _agent_root() -> Path:
 
 def _session_root() -> Path:
     return _agent_root() / "sessions"
+
+
+def _codex_home() -> Path:
+    configured = os.environ.get("CODEX_HOME")
+    return Path(configured).expanduser() if configured else Path.home() / ".codex"
 
 
 def _clean_text(value: Any) -> str:
@@ -103,6 +115,8 @@ def _resume_command(runner: str, session_id: str) -> str:
         return f"opencode --session {session_id}"
     if runner == "goose":
         return f"goose session resume --name {session_id}"
+    if runner == "codex":
+        return f"codex resume {session_id}"
     return f"{runner} --resume {session_id}"
 
 
@@ -418,6 +432,101 @@ def _discover_goose() -> list[DiscoveredSession]:
     return result
 
 
+def _codex_session(path: Path, fallback_id: str) -> Optional[DiscoveredSession]:
+    try:
+        updated_ns = path.stat().st_mtime_ns
+    except (OSError, ValueError):
+        return None
+    if path.name.endswith(".zst"):
+        return _discovered("codex", path, fallback_id, "Codex session", updated_ns)
+
+    session_id = ""
+    prompts: list[str] = []
+    inspection_items: list[tuple[int, str, str]] = []
+    seen: set[tuple[int, str]] = set()
+
+    def add_prompt(value: Any, timestamp: int) -> None:
+        prompt = _clean_text(value)
+        if not prompt or (timestamp, prompt) in seen:
+            return
+        seen.add((timestamp, prompt))
+        prompts.append(prompt)
+        inspection_items.append((timestamp, "query", prompt))
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                timestamp = _timestamp_ns(record.get("timestamp"), updated_ns)
+                record_type = record.get("type")
+                payload = record.get("payload")
+                if record_type == "session_meta" and isinstance(payload, dict):
+                    meta = payload.get("meta")
+                    if isinstance(meta, dict) and not session_id:
+                        for key in ("id", "session_id"):
+                            if isinstance(meta.get(key), str) and meta[key]:
+                                session_id = meta[key]
+                                break
+                if record_type == "event_msg" and isinstance(payload, dict):
+                    payload_type = payload.get("type")
+                    if payload_type == "user_message":
+                        add_prompt(payload.get("message"), timestamp)
+                    elif payload_type == "item_completed":
+                        item = payload.get("item")
+                        if isinstance(item, dict) and item.get("type") == "user_message":
+                            add_prompt(item.get("message", item.get("content")), timestamp)
+                elif (
+                    record_type == "response_item"
+                    and isinstance(payload, dict)
+                    and payload.get("role") == "user"
+                ):
+                    add_prompt(payload.get("content"), timestamp)
+    except (OSError, UnicodeError):
+        return None
+
+    session_id = session_id or fallback_id
+    return _discovered(
+        "codex",
+        path,
+        session_id,
+        prompts[-1] if prompts else "Codex session",
+        updated_ns,
+        tuple(prompts),
+        tuple(sorted(inspection_items, key=lambda item: item[0])),
+    )
+
+
+def _discover_codex() -> list[DiscoveredSession]:
+    root = _codex_home() / "sessions"
+    if not root.exists():
+        return []
+    candidates: dict[str, DiscoveredSession] = {}
+    try:
+        for path in root.rglob("rollout-*"):
+            if "archived_sessions" in path.parts or not path.is_file():
+                continue
+            match = _CODEX_ROLLOUT_RE.fullmatch(path.name)
+            if match is None:
+                continue
+            item = _codex_session(path, match.group("thread"))
+            if item is None:
+                continue
+            previous = candidates.get(item.session_id)
+            if previous is None or (item.updated_ns, str(path)) > (
+                previous.updated_ns,
+                str(previous.path),
+            ):
+                candidates[item.session_id] = item
+    except (OSError, UnicodeError):
+        return list(candidates.values())
+    return list(candidates.values())
+
+
 def _discover_runner(runner: str) -> list[DiscoveredSession]:
     discoverers = {
         "copilot": _discover_copilot,
@@ -426,6 +535,7 @@ def _discover_runner(runner: str) -> list[DiscoveredSession]:
         "opencode": _discover_opencode,
         "omp": _discover_omp,
         "goose": _discover_goose,
+        "codex": _discover_codex,
     }
     return discoverers[runner]()
 

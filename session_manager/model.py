@@ -13,12 +13,16 @@ DEFAULT_DATE_FORMAT = "%d.%m.%Y"
 
 _ENTRY_RE = re.compile(
     r"^(?P<command>"
-    r"(?:\S+(?:\s+--\S+)*\s+--resume(?:\s+|=)\S+(?:\s+--\S+)*"
+    r"(?:codex\s+resume\s+(?!-)\S+"
+    r"|\S+(?:\s+--\S+)*\s+--resume(?:\s+|=)\S+(?:\s+--\S+)*"
     r"|\S+(?:\s+--\S+)*\s+--session(?:\s+|=)\S+(?:\s+--\S+)*"
     r"|goose(?:\s+--\S+)*\s+session\s+resume\s+--name(?:\s+|=)\S+(?:\s+--\S+)*)"
     r")(?P<separator> +)(?P<description>.*)$"
 )
-_ID_RE = re.compile(r"(?:^|\s)(?:--resume|--session|--name)(?:\s+|=)(?P<id>\S+)")
+_ID_RE = re.compile(
+    r"(?:^|\s)(?:codex\s+resume\s+(?!-)(?P<codex_id>\S+)"
+    r"|(?:--resume|--session|--name)(?:\s+|=)(?P<option_id>\S+))"
+)
 
 
 @dataclass
@@ -41,7 +45,9 @@ class SessionEntry:
     @property
     def session_id(self) -> str:
         match = _ID_RE.search(self.command)
-        return match.group("id") if match else ""
+        if not match:
+            return ""
+        return match.group("codex_id") or match.group("option_id")
 
     @property
     def throwaway(self) -> bool:

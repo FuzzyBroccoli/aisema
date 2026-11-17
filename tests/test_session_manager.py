@@ -11,7 +11,13 @@ from unittest.mock import patch
 
 from session_manager.config import Config, DEFAULTS, load_config
 from session_manager.config_editor import ConfigEditor
-from session_manager.discovery import _generic_json_session, _resume_command, discover_recent
+from session_manager.discovery import (
+    _discover_codex,
+    _generic_json_session,
+    _resume_command,
+    available_harnesses,
+    discover_recent,
+)
 from session_manager.model import parse_line
 from session_manager.process import ProcessMatch, find_process, iter_processes, refresh_active
 from session_manager.storage import load_document
@@ -387,7 +393,7 @@ class SessionManagerTests(unittest.TestCase):
 
 
     def test_new_session_id_stays_temporary_until_description_edit(self) -> None:
-        discovered = parse_line("omp --resume generated New session", 0)
+        discovered = parse_line("codex resume generated New session", 0)
         assert discovered is not None
         discovered.last_used_ns = 2
         class Window:
@@ -397,10 +403,10 @@ class SessionManagerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.txt"
             document = load_document(path)
-            entry = parse_line("omp New omp session", 0)
+            entry = parse_line("codex New codex session", 0)
             assert entry is not None
             entry.parsed = True
-            entry.command = "omp"
+            entry.command = "codex"
             entry.separator = " "
             document.add_temporary(entry)
             app = object.__new__(SessionApp)
@@ -424,7 +430,7 @@ class SessionManagerTests(unittest.TestCase):
                 side_effect=[[], [], [discovered]],
             ):
                 app._refresh_new_sessions()
-                self.assertEqual(entry.command, "omp")
+                self.assertEqual(entry.command, "codex")
                 self.assertEqual(entry.session_id, "")
                 self.assertTrue(entry.temporary)
                 self.assertEqual(path.read_text(encoding="utf-8"), "")
@@ -433,7 +439,7 @@ class SessionManagerTests(unittest.TestCase):
                     app._edit()
             self.assertEqual(
                 path.read_text(encoding="utf-8"),
-                "omp --resume generated Edited session",
+                "codex resume generated Edited session",
             )
             self.assertFalse(entry.temporary)
 
@@ -605,6 +611,22 @@ class SessionManagerTests(unittest.TestCase):
         self.assertFalse(second.active)
         scan.assert_called_once_with()
 
+
+    def test_codex_process_matching_reuses_snapshot(self) -> None:
+        session_id = "019e029c-b1e9-7e31-992e-df4638cf8ee8"
+        first = parse_line(f"codex resume {session_id} First", 1)
+        second = parse_line("codex resume other Second", 2)
+        assert first is not None
+        assert second is not None
+        with patch(
+            "session_manager.process.iter_processes",
+            return_value=[ProcessMatch(42, ("codex", "resume", session_id))],
+        ) as scan:
+            with patch("session_manager.process._terminal_session_markers", return_value=()):
+                refresh_active([first, second])
+        self.assertTrue(first.active)
+        self.assertFalse(second.active)
+        scan.assert_called_once_with()
     def test_storage_preserves_blank_lines_and_separator(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.txt"
@@ -972,6 +994,116 @@ class SessionManagerTests(unittest.TestCase):
             self.assertEqual(text.count("# display_command=full"), 1)
             self.assertEqual(text.count("# show_throwaway=false"), 1)
 
+    def test_available_harnesses_includes_codex_in_order(self) -> None:
+        installed = {"copilot", "agent", "cursor-agent", "opencode", "omp", "goose", "codex"}
+        with patch(
+            "session_manager.discovery.shutil.which",
+            side_effect=lambda name: f"/bin/{name}" if name in installed else None,
+        ):
+            self.assertEqual(
+                available_harnesses(),
+                ("copilot", "agent", "cursor-agent", "opencode", "omp", "goose", "codex"),
+            )
+
+    def test_codex_discovery_reads_home_and_rollout_messages(self) -> None:
+        thread_id = "019e029c-b1e9-7e31-992e-df4638cf8ee8"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "sessions" / "2026" / "11" / "17" / (
+                f"rollout-2026-11-17T12-00-00-{thread_id}.jsonl"
+            )
+            path.parent.mkdir(parents=True)
+            records = [
+                {
+                    "timestamp": "2026-11-17T12:00:01Z",
+                    "type": "session_meta",
+                    "payload": {"meta": {"session_id": thread_id}},
+                },
+                {
+                    "timestamp": "2026-11-17T12:00:02Z",
+                    "type": "event_msg",
+                    "payload": {"type": "user_message", "message": " First prompt "},
+                },
+                {
+                    "timestamp": "2026-11-17T12:00:02Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "First prompt"}],
+                    },
+                },
+                {
+                    "timestamp": "2026-11-17T12:00:03Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "item_completed",
+                        "item": {"type": "user_message", "message": "Latest prompt"},
+                    },
+                },
+                "{partial",
+                {"type": "unknown", "payload": {"role": "assistant", "content": "ignore"}},
+            ]
+            path.write_text(
+                "\n".join(json.dumps(record) for record in records) + "\n",
+                encoding="utf-8",
+            )
+            os.utime(path, (11, 11))
+            with patch.dict(os.environ, {"CODEX_HOME": str(root)}):
+                entries = discover_recent("codex", 1)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].session_id, thread_id)
+        self.assertEqual(entries[0].command, f"codex resume {thread_id}")
+        self.assertEqual(entries[0].description, "Latest prompt")
+        self.assertEqual(entries[0].user_queries, ["First prompt", "Latest prompt"])
+        self.assertEqual(
+            entries[0].inspection_items,
+            [
+                (1_794_916_802_000_000_000, "query", "First prompt"),
+                (1_794_916_803_000_000_000, "query", "Latest prompt"),
+            ],
+        )
+        self.assertEqual(entries[0].last_used_ns, 11_000_000_000)
+
+    def test_codex_default_home_and_filename_fallbacks(self) -> None:
+        thread_id = "019e029c-b1e9-7e31-992e-df4638cf8ee8"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / ".codex" / "sessions" / "2026" / "11" / "17" / (
+                f"rollout-2026-11-17T12-00-00-{thread_id}_"
+                "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl"
+            )
+            duplicate = path.parent / f"rollout-2026-11-17T12-00-01-{thread_id}.jsonl"
+            compressed = root / ".codex" / "sessions" / "2026" / "11" / "17" / (
+                "rollout-2026-11-17T12-01-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl.zst"
+            )
+            archived = root / ".codex" / "sessions" / "archived_sessions" / path.name
+            unrelated = path.parent / "rollout-not-a-uuid.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text("{malformed\n", encoding="utf-8")
+            compressed.write_bytes(b"not decoded")
+            duplicate.write_text("{}", encoding="utf-8")
+            archived.parent.mkdir(parents=True)
+            archived.write_text("{}", encoding="utf-8")
+            unrelated.write_text("{}", encoding="utf-8")
+            os.utime(path, (3, 3))
+            os.utime(duplicate, (5, 5))
+            os.utime(compressed, (4, 4))
+            with patch.dict(os.environ, {}, clear=True):
+                with patch("session_manager.discovery.Path.home", return_value=root):
+                    sessions = _discover_codex()
+        self.assertEqual(
+            {item.session_id for item in sessions},
+            {thread_id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+        )
+        fallback = next(item for item in sessions if item.session_id == thread_id)
+        self.assertEqual(fallback.description, "Codex session")
+        self.assertEqual(fallback.updated_ns, 5_000_000_000)
+        compressed_item = next(
+            item for item in sessions if item.session_id == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        )
+        self.assertEqual(compressed_item.description, "Codex session")
+
     def test_available_harnesses_uses_executable_lookup(self) -> None:
         with patch(
             "session_manager.discovery.shutil.which",
@@ -1078,6 +1210,20 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(_inspection_query_index(0, 3, curses.KEY_END, 2), 2)
 
 
+    def test_codex_absent_and_unreadable_roots_are_nonfatal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.dict(os.environ, {"CODEX_HOME": str(root / "missing")}):
+                self.assertEqual(_discover_codex(), [])
+            path = root / "sessions" / "2026" / "11" / "17" / (
+                "rollout-2026-11-17T12-00-00-019e029c-b1e9-7e31-992e-df4638cf8ee8.jsonl"
+            )
+            path.parent.mkdir(parents=True)
+            path.write_text("{}", encoding="utf-8")
+            with patch.dict(os.environ, {"CODEX_HOME": str(root)}):
+                with patch.object(Path, "open", side_effect=PermissionError):
+                    self.assertEqual(_discover_codex(), [])
+
     def test_discover_recent_merges_harnesses_by_update_time(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1115,6 +1261,37 @@ class SessionManagerTests(unittest.TestCase):
             self.assertEqual([entry.session_id for entry in entries], ["omp-id", "copilot-id"])
             self.assertEqual(newest[0].command, "omp --resume omp-id")
 
+    def test_codex_participates_in_global_order_and_limit(self) -> None:
+        thread_id = "019e029c-b1e9-7e31-992e-df4638cf8ee8"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            copilot = root / ".copilot" / "history-session-state" / "copilot-id.json"
+            codex = root / ".codex" / "sessions" / "2026" / "11" / "17" / (
+                f"rollout-2026-11-17T12-00-00-{thread_id}.jsonl"
+            )
+            copilot.parent.mkdir(parents=True)
+            codex.parent.mkdir(parents=True)
+            copilot.write_text(json.dumps({"sessionId": "copilot-id"}), encoding="utf-8")
+            codex.write_text(
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"meta": {"id": thread_id}},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            os.utime(copilot, (2, 2))
+            os.utime(codex, (3, 3))
+            with patch("session_manager.discovery.Path.home", return_value=root):
+                with patch.dict(os.environ, {}, clear=True):
+                    entries = discover_recent("all", runners=("copilot", "codex"))
+                    newest = discover_recent(1, runners=("copilot", "codex"))
+        self.assertEqual([entry.runner for entry in entries], ["codex", "copilot"])
+        self.assertEqual(len(newest), 1)
+        self.assertEqual(newest[0].command, f"codex resume {thread_id}")
+
     def test_resume_command_formats(self) -> None:
         self.assertEqual(_resume_command("copilot", "copilot-id"), "copilot --resume copilot-id")
         self.assertEqual(_resume_command("agent", "agent-id"), "agent --resume agent-id")
@@ -1132,6 +1309,10 @@ class SessionManagerTests(unittest.TestCase):
             "goose session resume --name goose-id",
         )
 
+        self.assertEqual(
+            _resume_command("codex", "codex-id"),
+            "codex resume codex-id",
+        )
     def test_parse_supported_resume_command_shapes(self) -> None:
         cursor = parse_line("cursor-agent --resume=cursor_1 Cursor", 1)
         assert cursor is not None
@@ -1141,6 +1322,19 @@ class SessionManagerTests(unittest.TestCase):
             parse_line("goose session resume --name goose_1 Goose", 1).session_id,
             "goose_1",
         )
+
+    def test_parse_codex_resume_command_shape(self) -> None:
+        entry = parse_line("codex resume codex-id Codex session", 1)
+        assert entry is not None
+        self.assertTrue(entry.parsed)
+        self.assertEqual(entry.runner, "codex")
+        self.assertEqual(entry.session_id, "codex-id")
+        self.assertEqual(entry.command, "codex resume codex-id")
+        self.assertEqual(entry.description, "Codex session")
+        self.assertIsNotNone(parse_line("codex", 2))
+        self.assertFalse(parse_line("codex", 2).parsed)
+        self.assertFalse(parse_line("codex --last", 3).parsed)
+        self.assertFalse(parse_line("codex resume --last", 4).parsed)
     def test_parse_resume_commands_with_option_flags(self) -> None:
         before = parse_line("omp --yolo --resume abc --verbose Before and after", 1)
         assert before is not None

@@ -18,6 +18,7 @@ A small curses TUI for browsing, searching, sorting, editing, and resuming codin
   - `opencode`
   - `omp`
   - `goose`
+  - `codex`
 - Detect active OMP terminal sessions through terminal-session metadata.
 - Show ordered OMP recaps and user queries in the `M` popup.
 - Sort with independent primary and secondary sort layers.
@@ -66,13 +67,20 @@ Without a positional selector, startup loads the configured session file and add
 
 Discovery entries are temporary until changed. Editing their description or changing a marker materializes them into `sessions.txt`.
 
+Codex is discovered when the `codex` executable is installed. Aisema reads
+`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` (default:
+`~/.codex/sessions/...`) and uses the rollout’s UUID thread ID. `.jsonl.zst`
+rollouts are identified from their filename and mtime only because Aisema
+does not include a zstd decoder. Codex uses the generic active-process and
+new-session flows.
+
 ## Session file format
 
 Each non-empty line contains a complete resume command, one or more spaces, and a free-form description:
 
 ```text
 omp --resume 01a0f35d-3bdf-729e-85df-e2c96a772f4d Investigate the import failure
-opencode --session ses_1234 Review the API design
+codex resume 019e029c-b1e9-7e31-992e-df4638cf8ee8 Investigate the import failure
 ```
 
 Each normal entry must use one of the recognized command shapes:
@@ -82,6 +90,7 @@ Each normal entry must use one of the recognized command shapes:
 <runner> [--flags] --resume=<id> [--flags] <description>
 <runner> [--flags] --session <id> [--flags] <description>
 goose [--flags] session resume --name <id> [--flags] <description>
+codex resume <session-id> <description>
 ```
 
 Descriptions ending in ` Done.` remain visible as completed history. Descriptions ending in ` Throwaway.` are hidden by default. Both markers may be combined as `Done. Throwaway.`.
