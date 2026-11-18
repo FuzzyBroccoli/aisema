@@ -6,6 +6,7 @@ from pathlib import Path
 from . import process
 from .config import DEFAULT_SESSIONS_FILE, load_config
 from .discovery import available_harnesses, discover_recent
+from .runner_registry import RunnerPluginError, get_registry
 from .storage import load_document
 from .tui import run_tui
 
@@ -35,6 +36,10 @@ def main() -> None:
         help="discover COUNT newest sessions, or all sessions; omit to use the configured session file only",
     )
     args = parser.parse_args()
+    try:
+        get_registry()
+    except RunnerPluginError as exc:
+        parser.error(str(exc))
     config = load_config(args.config)
     session_file = args.file if args.file is not None else config.sessions_file
     document = load_document(session_file)
@@ -51,12 +56,9 @@ def main() -> None:
         except ValueError as exc:
             parser.error(str(exc))
     else:
-        try:
-            active_entries = discover_recent("all", runners=installed_harnesses)
-            process.refresh_active(active_entries)
-            document.add_discovered([entry for entry in active_entries if entry.active])
-        except (OSError, ValueError):
-            pass
+        active_entries = discover_recent("all", runners=installed_harnesses)
+        process.refresh_active(active_entries)
+        document.add_discovered([entry for entry in active_entries if entry.active])
     run_tui(document, config)
 
 

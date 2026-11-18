@@ -11,18 +11,7 @@ DONE_SUFFIX = " Done."
 THROWAWAY_SUFFIX = " Throwaway."
 DEFAULT_DATE_FORMAT = "%d.%m.%Y"
 
-_ENTRY_RE = re.compile(
-    r"^(?P<command>"
-    r"(?:codex\s+resume\s+(?!-)\S+"
-    r"|\S+(?:\s+--\S+)*\s+--resume(?:\s+|=)\S+(?:\s+--\S+)*"
-    r"|\S+(?:\s+--\S+)*\s+--session(?:\s+|=)\S+(?:\s+--\S+)*"
-    r"|goose(?:\s+--\S+)*\s+session\s+resume\s+--name(?:\s+|=)\S+(?:\s+--\S+)*)"
-    r")(?P<separator> +)(?P<description>.*)$"
-)
-_ID_RE = re.compile(
-    r"(?:^|\s)(?:codex\s+resume\s+(?!-)(?P<codex_id>\S+)"
-    r"|(?:--resume|--session|--name)(?:\s+|=)(?P<option_id>\S+))"
-)
+_NAME_ID_RE = re.compile(r"(?:^|\s)--name(?:\s+|=)(\S+)")
 
 
 @dataclass
@@ -44,10 +33,17 @@ class SessionEntry:
 
     @property
     def session_id(self) -> str:
-        match = _ID_RE.search(self.command)
-        if not match:
-            return ""
-        return match.group("codex_id") or match.group("option_id")
+        from .runner_api import match_option_resume
+        from .runner_registry import get_registry
+
+        runner = get_registry().for_command(self.command)
+        match = runner.match_resume(self.command) if runner else match_option_resume(self.command)
+        if match is not None:
+            return match.session_id
+        # Manually constructed commands historically expose --name IDs even
+        # when their command boundary is not launchable by parse_line().
+        name_match = _NAME_ID_RE.search(self.command)
+        return name_match.group(1) if name_match else ""
 
     @property
     def throwaway(self) -> bool:
@@ -65,9 +61,13 @@ class SessionEntry:
 
     @property
     def runner(self) -> str:
-        if not self.command:
-            return ""
-        return os.path.basename(self.command.split()[0])
+        from .runner_registry import get_registry
+
+        runner = get_registry().for_command(self.command)
+        if runner is not None:
+            return runner.name
+        tokens = self.command.split()
+        return os.path.basename(tokens[0]) if tokens else ""
 
     @property
     def short_session_id(self) -> str:
@@ -136,15 +136,26 @@ class SessionEntry:
 def parse_line(line: str, line_number: int) -> Optional[SessionEntry]:
     if not line.strip():
         return None
-    match = _ENTRY_RE.match(line)
-    if match:
-        return SessionEntry(
-            raw=line,
-            command=match.group("command"),
-            separator=match.group("separator"),
-            description=match.group("description"),
-            line_number=line_number,
-        )
+    from .runner_api import match_option_resume
+    from .runner_registry import get_registry
+
+    runner = get_registry().for_command(line)
+    match = runner.match_resume(line) if runner else match_option_resume(line)
+    if (
+        match is not None and match.command and match.session_id
+        and line.startswith(match.command)
+    ):
+        remainder = line[len(match.command):]
+        if remainder.startswith(" "):
+            description = remainder.lstrip(" ")
+            separator = remainder[:len(remainder) - len(description)]
+            return SessionEntry(
+                raw=line,
+                command=match.command,
+                separator=separator,
+                description=description,
+                line_number=line_number,
+            )
     # Keep malformed/non-standard lines visible and searchable. They cannot be
     # launched safely because no resume command boundary can be identified.
     return SessionEntry(

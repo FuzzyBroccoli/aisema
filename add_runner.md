@@ -1,310 +1,238 @@
 # Adding a Runner to Aisema
 
-This file is an instruction checklist for an AI or developer adding a new coding-agent runner to Aisema. Complete the information-gathering section before changing source code. Do not guess a runner's command syntax, storage layout, identifiers, or metadata schema.
+A runner is a trusted, user-local Python plugin. Add a single module to
+`~/.config/aisema/runners/` and restart Aisema; do not edit Aisema's discovery,
+parser, process, CLI, or TUI code. The seven built-ins use the same API as external
+plugins. A working illustrative adapter is in
+[`examples/runner_template.py`](examples/runner_template.py).
 
-## 1. Information to collect before implementation
+**Security:** importing a plugin executes Python with your user's privileges.
+Plugins are not sandboxed. Review the complete module and its dependencies before
+installing it. Install proprietary dependencies outside Aisema; Aisema neither
+installs packages nor verifies third-party code.
 
-The new runner is not ready for integration until every applicable item below has a verified answer. Use the runner's documentation, executable help, local sample data, and controlled launch/resume experiments. Record exact commands, paths, field names, and representative examples.
+## 1. Verify the harness facts first
 
-### 1.1 Identity and executable discovery
+Do not guess a harness's command syntax, storage layout, identifiers, or schema.
+Use official documentation, executable help, sanitized local data, and controlled
+new/resume experiments to establish:
 
-Collect:
+- **Identity and installation:** canonical runner name; every executable/wrapper
+  basename it owns; actual installation detection; version-dependent behavior.
+- **Commands:** exact new-session and resume commands, required subcommands/flags,
+  command/description boundary, quoting rules, invalid selectors, and ID grammar.
+  Establish how a new ID becomes observable after launch.
+- **IDs:** canonical field, scope and stability, character set, case sensitivity,
+  verified filename fallback, and distinction from workspace/process/pane IDs.
+- **Storage:** default roots, environment overrides and precedence, recursion,
+  extensions, account/project partitions, and safe read-only database access.
+- **Records:** sanitized schema and sample records; ID/title/prompt fields;
+  timestamp units and fallbacks; malformed, partial, or disappearing data behavior.
+- **Inspection:** all user-query fields and optional recap sources, session join
+  keys, and chronological ordering. Omit secrets and credentials from displayed
+  metadata.
+- **Activity:** sanitized current-user argv examples; wrapper/child behavior;
+  any terminal/metadata mapping needed when the session ID is absent from argv.
+- **Lifecycle and cost:** launch requirements, delayed ID creation, expected scan
+  sizes, concurrent writes, permission errors, and whether a scan blocks input.
 
-- Canonical runner name used in Aisema's command column and `SUPPORTED_HARNESSES`.
-- Executable name and any aliases.
-- Exact command used to detect installation, normally equivalent to `shutil.which(<executable>)`.
-- Whether the runner can be installed under a path or wrapper whose basename differs from the command used to launch it.
-- Version command and the minimum version, if behavior differs by version.
-- Whether the runner is optional, platform-specific, or unavailable in non-interactive shells.
+Keep relevant help output, sanitized records/schema, argv and optional terminal
+examples, exact paths, normalization rules, and deterministic fixtures with the
+adapter's own development materials. If a required fact is unknown, obtain it
+before implementing that behavior. No actual HARRI CLI, storage, or process
+compatibility is supplied or claimed by this repository.
 
-Current Aisema behavior: installed runners are detected by executable lookup before discovery and new-session selection.
+## 2. Create and install the module
 
-### 1.2 Resume command prototype
+1. Copy `examples/runner_template.py` to a working file outside the auto-loaded
+   directory. Its `example` CLI and JSON schema are deliberately illustrative,
+   not a production adapter.
+2. Replace `ExampleRunner`, its canonical name/executable ownership, and its
+   storage reader with verified harness behavior. Override only the hooks that
+   need different behavior; inherited methods are working defaults.
+3. Validate the adapter with isolated HOME/PATH, sanitized fixtures, and a real
+   controlled launch/resume before installing it.
+4. Create `~/.config/aisema/runners/` yourself and copy the finished module there,
+   for example as `harri.py` for a verified company adapter. Restart Aisema.
 
-Collect the exact command that resumes an existing session. Document:
+Aisema reads directly contained `.py` files in sorted order, excluding filenames
+whose stems start with `_`. It does not recurse, search the working directory,
+modify `sys.path`, create the plugin directory, or hot-reload code. The location
+remains `~/.config/aisema/runners` even with a custom `--config` path. A missing or
+empty directory means built-ins only. An unreadable existing directory, import
+failure, incompatible version, or invalid declaration fails startup clearly with
+the offending path; it is not silently treated as a missing runner. `--help`
+exits before plugin imports or configuration writes.
 
-- Command prototype, including the session-ID selector and whether it is positional, `--resume`, `--session`, `--name`, `--id`, or another form.
-- Whether the selector accepts `id`, `id=value`, quoting, or additional required flags.
-- Required flags before and after the session ID.
-- Whether the command differs between local, remote, project, or workspace sessions.
-- A working example with a real-looking placeholder ID.
-- The exact command Aisema must store and launch without reconstructing user-owned commands.
+## 3. Public API version 1
 
-Examples already supported by Aisema:
+Import from `session_manager.runner_api` and `session_manager.runner_helpers` at
+module scope. Do not import model, discovery orchestration, process orchestration,
+or the TUI at module scope. The API uses type-only references to the existing
+process snapshot/match types to avoid import cycles.
 
-```text
-omp --resume <session-id>
-cursor-agent --resume=<session-id>
-opencode --session <session-id>
-goose session resume --name <session-id>
+Every module exports:
+
+```python
+RUNNER_API_VERSION = 1
+RUNNER = YourConcreteRunner()
 ```
 
-For a normal new runner, the default generated form is `<runner> --resume <session-id>`. Add a runner-specific exception only when the runner's verified syntax requires it.
+`RUNNER_API_VERSION` must be the integer `1`, and `RUNNER` must be a concrete
+instance of `Runner` with an implemented `discover()` method.
 
-### 1.3 Session identifier rules
+### Identity, ownership, availability, and ordering
 
-Collect:
+- `name: str`: stable, nonempty canonical registry/session identity, not a display
+  label. Deduplication uses `(runner, session_id)`.
+- `command_names: tuple[str, ...]`: nonempty unique executable/wrapper basenames
+  owned by this runner, including the executable starting its new-session
+  command. Names and executable ownership must not conflict with another plugin
+  or a built-in. Plugins cannot replace built-ins.
+- `order: int = 100`: registry order is `(order, name)`. Built-ins occupy orders
+  0–6 in the existing copilot, agent, cursor-agent, opencode, omp, goose, codex
+  order.
+- `hidden_when_available: tuple[str, ...] = ()`: hide this runner in the
+  new-session picker if any listed canonical runner is installed. This does not
+  alter discovery, parsing, or identity.
+- `is_available() -> bool`: defaults to `shutil.which(command_names[0])` without
+  starting a harness. Override only for verified installation rules. Availability
+  is checked afresh for automatic discovery and new-session choices. Unavailable
+  runners still parse stored commands and support explicit runner discovery.
 
-- Where the canonical session ID is stored.
-- Whether the ID is globally unique or scoped by project, account, workspace, or runner.
-- Character set, case sensitivity, maximum length, and whether IDs contain spaces or shell-special characters.
-- Whether the ID appears in filenames, directories, JSON fields, SQLite fields, process arguments, or terminal metadata.
-- Filename fallback rules when the record does not contain an ID.
-- How to distinguish a session ID from a title, process ID, workspace ID, or conversation ID.
-- At least three representative IDs, including boundary or unusual forms if they exist.
+Ownership is selected from the basename of the first whitespace-separated
+command token. A canonical name may differ from the executable: a runner named
+`example` could own `example-cli`. Named wrappers and custom subcommands/flags are
+supported; arbitrary pipelines, environment-prefix commands, and quoted executable
+paths containing spaces are not a command-identification protocol.
 
-A new ID shape may require changes to `session_manager/model.py` (`_ID_RE` and possibly `_ENTRY_RE`), not only discovery code.
+### Commands and boundary recognition
 
-### 1.4 Session storage paths and scope
+- `new_session_command() -> str`: defaults to `command_names[0]`. Override for
+  verified extra startup arguments. Its first executable basename must be owned
+  by the runner before a session ID exists.
+- `resume_command(session_id: str) -> str`: defaults to the unquoted
+  `<command_names[0]> --resume <session_id>` form.
+- `match_resume(text: str) -> ResumeMatch | None`: defaults to the public neutral
+  `match_option_resume(text)` grammar: `--resume ID`, `--resume=ID`, `--session ID`,
+  and `--session=ID`, with the supported long-option tokens before/after the
+  selector. This is not a general shell parser. The default ID is a single token.
 
-Collect exact paths and precedence:
+Custom syntax belongs entirely in the plugin: override **both** generation and
+recognition, including quoting/ID rules and the complete command boundary. Return
+`ResumeMatch(command=<exact prefix of text>, session_id=<nonempty ID>)` or `None`.
+Accept a complete command at end-of-input, as well as before the description.
+Exclude the description and all command/description separating spaces from the
+returned command. For a stored session line, Aisema additionally requires one or
+more literal spaces after that prefix; it preserves the exact command, separator,
+and user description. Missing IDs, invalid selectors, or bad boundaries must not
+be guessed into launchable sessions.
 
-- Default session root.
-- Environment variables or configuration overrides.
-- XDG, platform, project, workspace, and account-specific variants.
-- Whether paths contain encoded working directories or date/session partitions.
-- File extensions and recursive/non-recursive traversal rules.
-- Whether symlinks, deleted files, archived files, or lock files must be ignored.
-- Whether the runner stores sessions in one file, one file per session, a directory tree, or a database.
-- Whether reading is safe while the runner is actively writing.
+A registered runner owns its parser's rejection: Aisema never overrides it with
+the generic grammar. For unregistered executables only, the existing neutral
+option grammar remains recognized. If a custom-syntax plugin is removed, its
+saved lines remain visible and searchable but unparsed and launch-blocked.
+Descriptions/markers may be edited without regenerating recognized commands.
 
-For OMP, the current facts are:
+### Discovery and normalization
 
-```text
-Agent root override: PI_CODING_AGENT_DIR
-Default agent root:  ~/.omp/agent
-Session root:       $PI_CODING_AGENT_DIR/sessions
-                    or ~/.omp/agent/sessions
-Session files:      recursive *.jsonl files
-Recap database:     $PI_CODING_AGENT_DIR/history.db
-                    or ~/.omp/agent/history.db
+`discover() -> list[DiscoveredSession]` reads verified local stores synchronously.
+Missing stores return `[]`. Skip expected unreadable, malformed, partial, or
+concurrently disappearing records using narrow exceptions. Do not hide arbitrary
+programming/runtime failures as empty discovery or inactive sessions.
+
+`DiscoveredSession` is a frozen dataclass with these fields:
+
+```python
+path: Path | None
+session_id: str
+description: str
+updated_ns: int
+runner: str
+resume_command: str
+user_queries: tuple[str, ...] = ()
+inspection_items: tuple[tuple[int, str, str], ...] = ()
 ```
 
-### 1.5 Session data format and metadata schema
+`path=None` supports non-file-backed stores. IDs must be stable and
+nonempty, `runner` must equal `self.name`, and `resume_command` must be recognized
+by the same runner. Timestamps are Unix nanoseconds. Retain all user queries and
+sort inspection items ascending by timestamp, using `"query"` and `"recap"` kinds.
+The `M` popup and the existing lifecycle consume these fields without plugin
+branches.
 
-Collect a minimal real sample, with sensitive content removed, and document:
+Prefer the public helpers when their behavior actually matches your data:
 
-- Encoding and record boundaries.
-- JSON, JSONL, SQLite, text, or binary format.
-- Record/type discriminator fields.
-- Session ID field and fallback location.
-- Title/name/description fields.
-- User-message role and content fields.
-- Timestamp fields and their units: seconds, milliseconds, microseconds, nanoseconds, or ISO-8601.
-- Update-time source used for sorting.
-- Malformed, partial, empty, or concurrently-written record behavior.
-- Fields that must not be displayed or persisted.
+- `make_session(runner, path, session_id, description, updated_ns,
+  user_queries=(), inspection_items=())` fills canonical identity, generates the
+  resume command, and supplies the `<runner> session` description fallback.
+- `generic_json_session(runner, path, session_id=None, *, clean_prompt=None)`
+  accepts JSON objects/lists or JSONL records, including `messages`, `history`,
+  `turns`, or `records` arrays. It takes top-level `sessionId`/`id`, then record
+  `sessionId`/`session_id`/`id`, then the filename stem, unless an explicit ID was
+  supplied. It prefers the latest user prompt over title/name/description,
+  preserves all prompts, and uses file mtime when timestamps are absent/invalid.
+  Recognized timestamp keys are `updatedAt`, `lastActivity`, `updated_at`, and
+  `timestamp`, in existing iteration order. Numeric values use magnitude-based
+  seconds/milliseconds/microseconds/nanoseconds normalization; ISO timestamps are
+  accepted. The optional callback cleans user-prompt text, not the whole record.
+  Catch expected filesystem races around this helper where appropriate.
+- `clean_text`, `user_prompt`, `timestamp_ns`, and `json_records` expose the same
+  neutral text/role/timestamp/record behavior for a custom reader.
 
-For OMP, the current JSONL facts are:
+Do not force an unrelated proprietary schema into the generic reader. Construct
+`DiscoveredSession` directly or use `make_session()` after validating your own
+records. The template docstring supplies one concrete illustrative JSON record.
 
-- `{"type":"session","id":"...","title":"..."}` identifies the session and may provide a title.
-- `{"type":"title","title":"..."}` may provide a title.
-- `{"type":"message", ...}` records messages.
-- User prompts are selected when the effective role is `user`; content is read from the nested message content or compatible record content/text fields.
-- The latest extracted user prompt becomes the discovered description; the title is the fallback.
-- JSONL file modification time is the fallback update timestamp.
-- Record timestamps are normalized to nanoseconds when present.
+### Snapshot-based process customization
 
-### 1.6 Recaps, summaries, and inspection history
+`find_process(session_id, snapshot) -> ProcessMatch | None` defaults to
+`match_argv_process(command_names, session_id, snapshot)`. It checks owned names in
+declared order, then each indexed candidate in snapshot order, retaining the
+existing session-ID-substring-in-joined-argv behavior.
 
-Determine whether the runner stores recaps, summaries, compaction records, or continuation notes separately from user queries. Collect:
+Aisema performs one current-user `/proc` scan per refresh, shares
+`ProcessSnapshot.by_runner` and `command_lines`, and caches TTY lookups. If argv
+matching is insufficient, override this hook in the plugin and first use the
+default matcher. Load verified metadata lazily into
+`snapshot.runner_data[self.name]`, including an empty result, so entries reuse it
+within the refresh. Reuse snapshot process indexes and cached TTY access; do not
+rescan `/proc` per entry or expand activity detection to other users. Return a
+real `ProcessMatch` only when activity is established. Propagate unexpected hook
+failures instead of reporting inactivity and risking duplicate launches. OMP's
+terminal-marker fallback belongs only to the OMP runner, not other plugins.
 
-- Storage path and database/table or file/record schema.
-- Session-ID join key.
-- Recap text field and whether it contains Markdown, bullets, or multiple lines.
-- Creation/update timestamp and units.
-- Ordering rules when recaps and user queries are displayed together.
-- Whether the newest recap should be shown in an opening summary page.
-- Whether old recaps can be missing, duplicated, or out of order.
+## 4. Existing lifecycle and verification
 
-For OMP, the current recap facts are:
+The picker calls the runner's exact new-session command. Aisema records known IDs,
+polls discovery for the newest previously unseen ID, adopts its resume command,
+and retains the temporary `N` entry without writing the session file. Description
+editing materializes it only after an ID is available. Inspection, ordinary
+refresh, last-used refresh, exact stored-command launching, and tracked tmux-pane
+focus all use the existing runner-neutral lifecycle. No additional TUI branch,
+central registration list, parser regex, or process dispatch branch is needed.
 
-```sql
-history.db.session_recaps
-    id         INTEGER PRIMARY KEY
-    session_id TEXT
-    cwd        TEXT
-    recap      TEXT
-    created_at INTEGER   -- Unix seconds
-```
+Use isolated HOME/PATH and deterministic sanitized fixtures to cover:
 
-Aisema joins `session_recaps.session_id` to the JSONL session ID. It stores inspection items as `(timestamp, kind, text)`, where `kind` is `recap` or `query`, and orders them by timestamp for the `M` popup. The latest recap is shown below the description when the popup opens.
+- Drop-in loading, unavailable executable versus absent plugin, actionable
+  startup failures, conflicting ownership, and malformed command boundaries.
+- Discovery metadata, canonical identity distinct from executable basename,
+  same ID across different runners, global limits, and chronological inspection.
+- Exact command/separator preservation on load, description/marker editing, and
+  serialization; quoted IDs if supported by your custom grammar.
+- Current-user activity, shared snapshots, metadata caching, disappearing data,
+  and no false positive activity from another runner's metadata.
+- Actual new/resume execution, delayed ID adoption, unchanged file before editing,
+  persistence after editing, and tmux tracked-pane focus when tmux is available.
 
-### 1.7 Active-session detection
-
-Collect enough information to answer all of these:
-
-- How a running process exposes the session ID in its argv or environment.
-- The executable basename that identifies the runner process.
-- Whether wrapper processes, child processes, or shell commands hide the ID.
-- Whether an active session can be identified only by a terminal, pane, socket, lock, or metadata marker.
-- How a terminal/session marker maps to a session ID and process terminal.
-- Whether process matching must be restricted to the current user.
-- What should happen when a process exits during a scan.
-
-Current Aisema process behavior:
-
-- Scans only current-user `/proc` entries.
-- Builds one process/terminal snapshot per active-state refresh round and reuses it for all entries.
-- Matches a session ID in the process command line together with the runner basename.
-- Falls back to OMP terminal-session metadata when the ID is absent from argv.
-- Reads `pts-*` marker files under `$PI_CODING_AGENT_DIR/terminal-sessions` or the default agent root.
-- Uses the second marker-file line, whose JSONL filename stem ends in `_<session-id>`, to map the session to `/dev/pts/<number>`.
-- Matches a current-user runner process attached to that terminal.
-
-Do not scan every process once per session entry. Add one reusable snapshot or an equivalent indexed scan.
-
-### 1.8 Launch, new-session, and tmux behavior
-
-Collect:
-
-- Exact command for starting a new session.
-- Whether startup requires a project directory, stdin, environment variables, or an interactive terminal.
-- How the newly created session ID becomes observable.
-- How long discovery may take after launch.
-- Whether the first process is a wrapper whose pane/process identity must be retained.
-- Whether tmux should launch a detached window or focus an existing pane.
-- Whether a running session can safely be focused instead of launched again.
-- Failure and cancellation behavior.
-
-Aisema's generic flow creates a temporary entry with the runner command, records known IDs, launches the command, polls discovery for a new ID, replaces the temporary command with the runner-specific resume command, and materializes the entry only when the user edits or changes it as specified by the existing TUI behavior.
-
-### 1.9 Safety, ownership, and performance
-
-Collect:
-
-- Whether session files and databases belong to the current user only.
-- Whether reading requires a read-only database connection or file lock.
-- Whether secrets, prompts, credentials, or private paths may appear in metadata.
-- Maximum expected number and size of session files.
-- Whether discovery should be cached, bounded, throttled, or limited to the current user.
-- Whether discovery should obey Aisema's `session_list_update_interval` or needs a separate explicit refresh path.
-- Whether a scan can block keyboard interaction.
-- Errors expected from permission changes, deleted files, malformed records, and concurrent writes.
-
-Do not add broad host-wide process or terminal scans when a current-user path or ownership filter is available.
-
-### 1.10 Evidence package required before coding
-
-The AI must collect and preserve:
-
-1. The executable help output relevant to session listing, resume, and new-session startup.
-2. One sanitized session record or database schema plus representative rows.
-3. One sanitized active-process argv example.
-4. One sanitized terminal/pane metadata example if terminal fallback is required.
-5. Exact default and override paths.
-6. Exact timestamp and ID normalization rules.
-7. A list of expected edge cases and how the runner behaves for each.
-8. A proposed set of deterministic test fixtures.
-
-If any required fact is unknown, stop implementation and state the missing fact instead of guessing.
-
-## 2. Aisema areas to update when adding a runner
-
-Use this checklist after the runner facts are verified. Update every applicable area; do not add a partial discoverer that cannot resume, detect activity, or be tested.
-
-### 2.1 Discovery registration and normalization
-
-Update `session_manager/discovery.py`:
-
-- Add the canonical runner name to `SUPPORTED_HARNESSES` in the intended display/discovery order.
-- Add the runner to `_discover_runner()`'s dispatch map.
-- Implement a runner-specific discoverer or reuse `_generic_json_session()` only when the schema actually matches its contract.
-- Add all verified storage roots, environment overrides, file extensions, recursion rules, and database locations.
-- Extract the canonical session ID and implement a verified filename fallback only if needed.
-- Extract title, description, latest user prompt, update timestamp, and all user queries.
-- Normalize timestamps through `_timestamp_ns()` or extend it only for a verified new format.
-- Add recap/summary joins and timestamp-ordered `inspection_items` when the runner has them.
-- Return the exact `DiscoveredSession` fields: path, session ID, description, update time, runner, resume command, user queries, and inspection items.
-- Keep read failures, malformed records, missing IDs, and concurrent writes non-fatal.
-- Preserve global sorting and selector limits in `discover_recent()`.
-
-### 2.2 Resume command and session-file parsing
-
-Update `session_manager/discovery.py` and, only when required, `session_manager/model.py`:
-
-- Add a runner-specific `_resume_command()` branch if its syntax is not `<runner> --resume <id>`.
-- Update `_ENTRY_RE` for a genuinely new command shape.
-- Update `_ID_RE` for a genuinely new selector syntax or ID boundary.
-- Verify `SessionEntry.runner`, `session_id`, `short_session_id`, serialization, and exact-command launching.
-- Do not rewrite existing stored commands or introduce a second incompatible command convention.
-
-### 2.3 Active process and terminal matching
-
-Update `session_manager/process.py` when the new runner needs special handling:
-
-- Keep current-user process filtering.
-- Reuse the one-scan `ProcessSnapshot` for all entries in a refresh round.
-- Add runner aliases or wrapper-process matching only when verified by process examples.
-- Add terminal/pane metadata parsing only when argv matching cannot reliably identify active sessions.
-- Cache terminal lookups inside the refresh snapshot.
-- Handle disappearing processes and unreadable `/proc` entries without failing the TUI.
-
-### 2.4 TUI and launch/new-session integration
-
-Update `session_manager/tui.py` when needed:
-
-- Ensure the runner appears in the new-session picker through `available_harnesses()`.
-- Add runner-specific startup, ID polling, or post-launch discovery only when generic behavior is insufficient.
-- Preserve temporary-entry, `N` marker, materialization, focus, and duplicate-launch behavior.
-- Ensure `M` inspection data displays ordered queries/recaps without blocking normal keyboard input.
-- Avoid synchronous repeated scans or runner-specific work on every draw.
-
-Update `session_manager/__main__.py` only when CLI startup discovery needs runner-specific handling. The normal selector and active-session paths should remain generic.
-
-### 2.5 Configuration integration
-
-Add a configuration key only when the runner requires user-selectable behavior:
-
-- Add it to `DEFAULTS` in `session_manager/config.py`.
-- Add validation and a typed property when appropriate.
-- Let `ConfigEditor` derive the key automatically from `DEFAULTS`.
-- Ensure changing a commented value activates the line.
-- Update README, `session_format.md`, and `session-manager-specs.md` defaults and behavior.
-
-Do not add a runner-specific setting when executable lookup, standard paths, and generic discovery are sufficient.
-
-### 2.6 Tests and fixtures
-
-Update `tests/test_session_manager.py` with deterministic consumer-visible coverage for:
-
-- Executable availability and runner registration.
-- Resume-command generation and command parsing.
-- Session ID extraction, including fallback and unusual IDs.
-- Storage path discovery and path overrides.
-- Metadata parsing, title/description fallback, latest prompt extraction, and timestamp normalization.
-- Recap/query ordering and the `M` popup opening/latest-recap behavior, if applicable.
-- Active process matching, wrapper handling, and terminal fallback, if applicable.
-- New-session command, ID polling, materialization, and tmux focus, if applicable.
-- Malformed, incomplete, permission-denied, and concurrently-written data.
-- Discovery limits, global newest-first ordering, and duplicate handling.
-
-Tests must assert observable behavior and boundaries. Do not add tests that only assert forwarding, copied source text, mock echoes, or that a collection is non-empty.
-
-### 2.7 Documentation and examples
-
-Update all relevant documentation together:
-
-- `README.md`: supported runner list, invocation examples, discovery behavior, limitations, and keyboard behavior.
-- `session_format.md`: user-visible discovery, descriptions, recaps/queries, launch behavior, and command examples.
-- `session-manager-specs.md`: architecture, source paths, normalized fields, process detection, config, tests, and invariants.
-- `add_runner.md`: add any newly discovered reusable onboarding facts only if they are general runner-integration guidance.
-
-Document exact paths, command prototypes, data formats, fallback behavior, and known limitations. Do not document an unverified assumption as fact.
-
-### 2.8 Verification before delivery
-
-Run all applicable checks after every source change:
+For Aisema core changes, run the existing suite and focused plugin regressions:
 
 ```sh
-python3 -m unittest discover -s tests -v
-python3 -m compileall -q session_manager tests
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=tests python3 -m unittest -v test_runner_plugins
 ```
 
-Also run a real TUI startup/quit smoke test. For runner changes, exercise the actual discovery or launch path with sanitized fixtures or a controlled local runner. Confirm that:
-
-- The program starts and remains keyboard-responsive.
-- Existing runners behave unchanged.
-- The new runner appears only when installed or explicitly tested.
-- Session lines, descriptions, markers, recaps, and queries remain correctly ordered.
-- No unrelated files, user data, or generated `__pycache__` files are included.
+Also exercise a real CLI/TUI launch with disposable configuration and session
+files. The repository's synthetic plugin fixtures prove the extension boundary,
+not compatibility with any company's actual HARRI harness. Validate your real
+adapter against the verified harness before distributing it.

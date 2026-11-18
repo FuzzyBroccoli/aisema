@@ -11,6 +11,7 @@ from .config import Config, load_config
 from .config_editor import ConfigEditor
 from .discovery import available_harnesses, discover_recent, refresh_last_used
 from .model import SessionEntry
+from .runner_registry import get_registry
 from . import process, tmux
 from .storage import SessionDocument
 
@@ -467,10 +468,7 @@ class SessionApp:
             ]
         if not entry.session_id:
             return []
-        try:
-            discovered = discover_recent("all", runners=(entry.runner,))
-        except (OSError, ValueError):
-            return []
+        discovered = discover_recent("all", runners=(entry.runner,))
         for candidate in discovered:
             if candidate.session_id == entry.session_id:
                 entry.user_queries = candidate.user_queries
@@ -661,8 +659,12 @@ class SessionApp:
 
     def _new_session_harnesses(self) -> list[str]:
         installed = list(available_harnesses())
-        if "agent" in installed and "cursor-agent" in installed:
-            installed.remove("cursor-agent")
+        available = set(installed)
+        registry = get_registry()
+        installed = [
+            name for name in installed
+            if not any(hidden in available for hidden in registry.get(name).hidden_when_available)
+        ]
         installed_set = set(installed)
         ordered: list[str] = []
         for entry in [*self.visible, *self.document.entries]:
@@ -785,14 +787,11 @@ class SessionApp:
             for candidate in self.document.entries
             if candidate.runner == entry.runner and candidate.session_id
         }
-        try:
-            known.update(
-                candidate.session_id
-                for candidate in discover_recent("all", runners=(entry.runner,))
-                if candidate.session_id
-            )
-        except (OSError, ValueError):
-            pass
+        known.update(
+            candidate.session_id
+            for candidate in discover_recent("all", runners=(entry.runner,))
+            if candidate.session_id
+        )
         self.new_session_baselines = getattr(self, "new_session_baselines", {})
         self.new_session_baselines[id(entry)] = known
 
@@ -803,10 +802,7 @@ class SessionApp:
             known = baselines.get(id(entry))
             if known is None or entry.session_id:
                 continue
-            try:
-                candidates = discover_recent("all", runners=(entry.runner,))
-            except (OSError, ValueError):
-                continue
+            candidates = discover_recent("all", runners=(entry.runner,))
             candidate = next(
                 (item for item in candidates if item.session_id and item.session_id not in known),
                 None,
@@ -861,9 +857,11 @@ class SessionApp:
         if runner is None:
             self._set_message("new session cancelled")
             return
+        selected_runner = get_registry().get(runner)
+        command = selected_runner.new_session_command()
         entry = SessionEntry(
-            raw=f"{runner} New {runner} session",
-            command=runner,
+            raw=f"{command} New {runner} session",
+            command=command,
             separator=" ",
             description=f"New {runner} session",
             line_number=0,

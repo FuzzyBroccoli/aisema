@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from .model import SessionEntry
+from .runner_api import match_argv_process
+from .runner_registry import get_registry
 
 
 @dataclass(frozen=True)
@@ -19,7 +21,7 @@ class ProcessSnapshot:
     processes: tuple[ProcessMatch, ...]
     by_runner: dict[str, tuple[ProcessMatch, ...]]
     command_lines: dict[int, str]
-    terminal_markers: tuple[tuple[str, str], ...]
+    runner_data: dict[str, object] = field(default_factory=dict)
     process_ttys: dict[int, Optional[str]] = field(default_factory=dict)
 
     def tty_for(self, pid: int) -> Optional[str]:
@@ -51,40 +53,6 @@ def iter_processes() -> Iterable[ProcessMatch]:
             yield ProcessMatch(int(child.name), argv)
 
 
-def _terminal_session_markers() -> tuple[tuple[str, str], ...]:
-    root = Path(os.environ.get("PI_CODING_AGENT_DIR", "~/.omp/agent")).expanduser()
-    terminal_sessions = root / "terminal-sessions"
-    try:
-        markers = terminal_sessions.iterdir()
-    except (FileNotFoundError, PermissionError, OSError):
-        return ()
-    found: list[tuple[str, str]] = []
-    for marker in markers:
-        if not marker.name.startswith("pts-"):
-            continue
-        try:
-            lines = marker.read_text(encoding="utf-8").splitlines()
-        except (FileNotFoundError, PermissionError, OSError, UnicodeError):
-            continue
-        if len(lines) >= 2:
-            found.append((f"/dev/pts/{marker.name[4:]}", Path(lines[1]).stem))
-    return tuple(found)
-
-
-def _terminal_tty(
-    session_id: str,
-    markers: tuple[tuple[str, str], ...],
-) -> Optional[str]:
-    for tty, session_path in markers:
-        if session_path.endswith(f"_{session_id}"):
-            return tty
-    return None
-
-
-def _terminal_session_tty(session_id: str) -> Optional[str]:
-    return _terminal_tty(session_id, _terminal_session_markers())
-
-
 def _process_tty(pid: int) -> Optional[str]:
     for fd in ("0", "1", "2"):
         try:
@@ -108,21 +76,7 @@ def scan_processes() -> ProcessSnapshot:
         processes=processes,
         by_runner={runner: tuple(matches) for runner, matches in by_runner.items()},
         command_lines=command_lines,
-        terminal_markers=_terminal_session_markers(),
     )
-
-
-def _find_terminal_process(
-    entry: SessionEntry,
-    snapshot: ProcessSnapshot,
-) -> Optional[ProcessMatch]:
-    tty = _terminal_tty(entry.session_id, snapshot.terminal_markers)
-    if tty is None:
-        return None
-    for process in snapshot.by_runner.get(entry.runner, ()):
-        if snapshot.tty_for(process.pid) == tty:
-            return process
-    return None
 
 
 def find_process(
@@ -134,10 +88,10 @@ def find_process(
     if not session_id or not runner:
         return None
     current_snapshot = snapshot or scan_processes()
-    for process in current_snapshot.by_runner.get(runner, ()):
-        if session_id in current_snapshot.command_lines[process.pid]:
-            return process
-    return _find_terminal_process(entry, current_snapshot)
+    owner = get_registry().for_command(entry.command)
+    if owner is not None:
+        return owner.find_process(session_id, current_snapshot)
+    return match_argv_process((runner,), session_id, current_snapshot)
 
 
 def refresh_active(

@@ -19,6 +19,7 @@ A small curses TUI for browsing, searching, sorting, editing, and resuming codin
   - `omp`
   - `goose`
   - `codex`
+- Extend discovery, command parsing, and activity detection with drop-in runner plugins.
 - Detect active OMP terminal sessions through terminal-session metadata.
 - Show ordered OMP recaps and user queries in the `M` popup.
 - Sort with independent primary and secondary sort layers.
@@ -74,6 +75,29 @@ rollouts are identified from their filename and mtime only because Aisema
 does not include a zstd decoder. Codex uses the generic active-process and
 new-session flows.
 
+## Runner plugins
+
+Built-ins and external runners share the public API in
+[`session_manager/runner_api.py`](session_manager/runner_api.py). To integrate
+another harness, adapt the working
+[`examples/runner_template.py`](examples/runner_template.py) using verified CLI,
+storage, and process facts, then install the module directly in
+`~/.config/aisema/runners/` and restart Aisema. No core registration, parser,
+process, or TUI edits are required. See [`add_runner.md`](add_runner.md) for the
+versioned contract, command-boundary rules, and onboarding checklist.
+
+The plugin directory is fixed even when `--config` points elsewhere. Aisema loads
+direct `.py` children except names beginning with `_`; it does not hot-reload or
+install dependencies. Invalid plugins fail startup with their path and reason.
+**Plugins execute trusted Python with your user's privileges and are not
+sandboxed.** Review them before installation. The template's `example` CLI and
+JSON format are illustrative; no actual HARRI integration is claimed.
+
+Executable availability gates automatic discovery and the new-session picker,
+not saved-command parsing or explicitly selected discovery. A missing plugin
+leaves its custom-syntax saved lines visible but unlaunchable. Canonical runner
+identities may differ from owned executable basenames.
+
 ## Session file format
 
 Each non-empty line contains a complete resume command, one or more spaces, and a free-form description:
@@ -83,15 +107,21 @@ omp --resume 01a0f35d-3bdf-729e-85df-e2c96a772f4d Investigate the import failure
 codex resume 019e029c-b1e9-7e31-992e-df4638cf8ee8 Investigate the import failure
 ```
 
-Each normal entry must use one of the recognized command shapes:
+Built-in command shapes include:
 
 ```text
 <runner> [--flags] --resume <id> [--flags] <description>
 <runner> [--flags] --resume=<id> [--flags] <description>
 <runner> [--flags] --session <id> [--flags] <description>
+<runner> [--flags] --session=<id> [--flags] <description>
 goose [--flags] session resume --name <id> [--flags] <description>
 codex resume <session-id> <description>
 ```
+
+Registered plugins recognize their own command grammar and exact command boundary.
+For unknown executables, the generic `--resume`/`--session` forms remain supported.
+Unrecognized lines stay visible and searchable but cannot be launched. Recognized
+commands and their exact separating spaces survive description/marker edits.
 
 Descriptions ending in ` Done.` remain visible as completed history. Descriptions ending in ` Throwaway.` are hidden by default. Both markers may be combined as `Done. Throwaway.`.
 
@@ -217,7 +247,11 @@ Run the compile check:
 python3 -m compileall -q session_manager tests
 ```
 
-The implementation is in [`session_manager/`](session_manager/) and tests are in [`tests/test_session_manager.py`](tests/test_session_manager.py). The detailed architecture and behavior handoff is in [`session-manager-specs.md`](session-manager-specs.md).
+The implementation is in [`session_manager/`](session_manager/) and tests are in
+[`tests/`](tests/), including plugin integration coverage in
+[`tests/test_runner_plugins.py`](tests/test_runner_plugins.py). The detailed
+architecture and behavior handoff is in
+[`session-manager-specs.md`](session-manager-specs.md).
 
 ## Version
 

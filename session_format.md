@@ -4,11 +4,11 @@
 
 ## Entry format
 
-A non-empty line MUST begin with the complete session-resume command. The command is followed by the command/description separator used by the log: one or more spaces. The command portion MAY target any supported session runner, including `agent`, `omp`, or another applicable command, and MUST be preserved exactly as the restart command.
+A non-empty line MUST begin with the complete session-resume command. The command is followed by the command/description separator used by the log: one or more literal spaces. The command portion MAY target a built-in or installed plugin runner and MUST be preserved exactly as the restart command. Unknown executable names also retain recognition of the neutral `--resume`/`--session` option forms.
 
 All remaining text on the line is the user-owned description. The description is display text, not a set of structured fields. It MAY state an objective, current status, or future work; no other semantics are imposed. User wording and entry ordering MUST be preserved.
 
-No machine parser or escape syntax is defined by this format. The command and description are recorded in the existing line shape.
+There is no universal shell parser or escaping convention in this format. A registered runner defines its command grammar and boundary, including any custom quoting rules; the remaining text after the separator is the description.
 
 ## Completion
 
@@ -36,9 +36,9 @@ Blank lines, if present, have no session meaning. Entries are not otherwise recl
 
 The Aisema TUI reads the configured session file, or the path from `sessions_file`/`--file`, displays every non-empty entry, and keeps completed entries visible after entries without the terminal done marker. The first column has fixed status slots in order: `A` active, `D` done, `X` throwaway, and `N` not yet present in `sessions.txt`; missing statuses remain blank so each letter stays in the same character column. For example, a row with all four statuses starts `ADXN omp 32094u320`. The command column shows the stored command by default; the configuration can instead show the runner and final hyphen-separated session-ID component, such as `omp 4785cd455157`. Within each status group, entries are ordered by last-used time with the newest first; the selected sort mode remains the primary key when it …
 
-The manager recognizes `<runner> [--flag ...] --resume <id> [--flag ...]`, `<runner> [--flag ...] --resume=<id> [--flag ...]`, `<runner> [--flag ...] --session <id> [--flag ...]`, `goose [--flag ...] session resume --name <id> [--flag ...]`, and `codex resume <session-id>` command shapes. For the flag-based shapes, additional flag tokens beginning with `--` may appear before the resume selector, after its session ID, or both. Other non-empty lines remain visible and searchable, but are not launchable because their command boundary cannot be identified.
+Built-ins recognize `<runner> [--flag ...] --resume <id> [--flag ...]`, `<runner> [--flag ...] --resume=<id> [--flag ...]`, `<runner> [--flag ...] --session <id> [--flag ...]`, `<runner> [--flag ...] --session=<id> [--flag ...]`, `goose [--flag ...] session resume --name <id> [--flag ...]`, and `codex resume <session-id>` command shapes. For the flag-based shapes, supported long-option tokens may precede or follow the selector. Registered plugins may define additional command shapes; their parser must return an exact command prefix with a nonempty ID, followed by the literal description separator. A registered runner's rejection is never overridden by generic parsing. Other non-empty lines remain visible and searchable but unlaunchable.
 
-With no positional selector, startup uses the configured session file. An optional positional integer discovers that many newest sessions across installed `copilot`, `agent`, `cursor-agent`, `opencode`, `omp`, `goose`, and `codex` harnesses. `all` is case-insensitive and discovers every available session. Discovery uses the fast executable lookup for installed-harness detection, then merges all selected harnesses and sorts them newest-first by update time. Discovered entries are temporary until changed. A newly created `N` session is tracked until its newly generated session ID is discovered; the command is then replaced in memory with the harness-specific resume command and remains ephemeral. The new-session picker omits `cursor-agent` when the shorter `agent` launcher is available.
+With no positional selector, startup uses the configured session file and adds active discoveries. An optional positive integer discovers that many globally newest sessions across installed runners; built-ins are `copilot`, `agent`, `cursor-agent`, `opencode`, `omp`, `goose`, and `codex`, and external plugins participate through the same registry. `all` is case-insensitive and discovers every available session. Each runner's availability check (executable lookup by default) gates automatic discovery and the new-session picker, not saved-command parsing or explicit runner discovery. Discovered entries are temporary until changed. A newly created `N` session uses its runner's exact new-session command until its generated ID is discovered, then adopts the resume command in memory and remains ephemeral. Picker hiding is declared by runners; Cursor's declaration omits `cursor-agent` when `agent` is installed, without rewriting stored commands.
 
 For discovered sessions, the default description is the latest user prompt from the session record when available; otherwise the harness title or session name is used.
 For OMP sessions, recap records from the agent history database are combined with user queries and shown by the `M` popup in recorded timestamp order. The opening page shows the latest recap below the description when available.
@@ -51,6 +51,17 @@ as timestamp-ordered query inspection items. Malformed, partial, unknown, and
 unreadable records are ignored; the file mtime supplies discovery and invalid
 record timestamps. `.jsonl.zst` files are identified by filename and use the
 generic `Codex session` description because Aisema has no zstd decoder.
+
+Runner plugins are direct `.py` modules in `~/.config/aisema/runners/`, loaded on
+startup regardless of `--config`. Canonical runner identity may differ from the
+executable basename; document deduplication uses canonical `(runner, session_id)`.
+Commands and separators remain exact when descriptions or markers are edited.
+Removing a custom-syntax plugin preserves its saved text as visible, unparsed,
+launch-blocked lines. Executable unavailability alone does not remove its parser
+or inspection support. Plugins are trusted, unsandboxed user code; see
+[`add_runner.md`](add_runner.md) and the illustrative
+[`examples/runner_template.py`](examples/runner_template.py) for the public
+contract and verified-facts onboarding.
 
 
 The `show_throwaway` setting controls whether throwaway entries are visible. Hidden throwaway entries are also excluded from searches until enabled. `show_done=false` filters entries whose description ends with ` Done.` from the session list; the default is `true`.

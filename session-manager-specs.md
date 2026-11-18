@@ -6,7 +6,7 @@ This document records the implemented behavior and architecture of Aisema. It is
 
 The application is a curses TUI for browsing, searching, editing, sorting, and resuming coding-agent sessions. It reads a human-editable session log, optionally discovers recent sessions from installed harnesses, and launches or focuses the selected session.
 
-The implementation is a small Python package in `session_manager/`. There is no build system or external application framework. The test suite is `tests/test_session_manager.py`.
+The implementation is a small Python package in `session_manager/`. There is no build system or external application framework. Tests live in `tests/`, including `test_session_manager.py` and the isolated plugin integration suite `test_runner_plugins.py`.
 
 ## 2. Running the application
 
@@ -26,7 +26,7 @@ COUNT|ALL         Optional discovery selector. Omit it to use the configured ses
 
 `COUNT` must be a positive integer. `all` is case-insensitive and discovers all sessions available through installed supported harnesses. A numeric selector discovers the globally newest `COUNT` sessions across the selected installed harnesses.
 
-The CLI parses arguments, loads configuration, chooses the session path, loads the session document, performs selector-driven discovery or active-session refresh, and starts curses through `run_tui()`.
+The CLI parses arguments, initializes the process-local runner registry, loads configuration, chooses the session path, loads the session document, performs selector-driven discovery or active-session refresh, and starts curses through `run_tui()`. Registry loading errors become actionable argument-parser errors naming the plugin path. `--help` exits before plugin imports or configuration writes.
 
 ## 3. Repository architecture
 
@@ -36,11 +36,18 @@ flowchart TD
     CLI --> DISC[discovery.py]
     CLI --> CONFIG[config.py]
     CLI --> TUI[tui.py]
+    CLI --> REGISTRY[runner_registry.py]
+    REGISTRY --> RUNNERS[runners/ and user plugins]
+    RUNNERS --> API[runner_api.py]
+    RUNNERS --> HELPERS[runner_helpers.py]
     STORAGE --> MODEL[model.py]
     DISC --> MODEL
+    MODEL --> REGISTRY
+    DISC --> REGISTRY
     TUI --> MODEL
     TUI --> CONFIG_EDITOR[config_editor.py]
     TUI --> PROCESS[process.py]
+    PROCESS --> REGISTRY
     TUI --> TMUX[tmux.py]
     CONFIG_EDITOR --> CONFIG
 ```
@@ -48,6 +55,7 @@ flowchart TD
 ### `session_manager/__main__.py`
 
 - Defines CLI defaults and argument parsing.
+- Initializes the same lazy runner registry used by library parsing, discovery, process matching, and the TUI.
 - Loads configuration before selecting the session document path.
 - Calls `load_document()`.
 - Calls `available_harnesses()` and `discover_recent()` for selector-driven discovery or active-session refresh.
@@ -58,7 +66,7 @@ flowchart TD
 Defines the session data model and parsing rules:
 
 - `SessionEntry` represents one non-empty session line or one ephemeral discovered/temporary session.
-- `parse_line()` recognizes supported resume-command shapes and preserves unrecognized non-empty lines as visible but non-launchable entries.
+- `parse_line()` resolves executable ownership through the registry and delegates command-boundary recognition to that runner; unregistered executables retain neutral option-form parsing. Unrecognized non-empty lines remain visible but non-launchable.
 - Marker handling, session IDs, runner names, short command display, serialization, and last-used date formatting live here.
 
 ### `session_manager/storage.py`
@@ -81,17 +89,60 @@ Provides the in-TUI configuration editor. It understands known keys from `DEFAUL
 
 Provides:
 
-- Installed-harness detection.
-- Per-harness session discovery adapters.
-- Timestamp normalization to nanoseconds.
-- Description extraction from latest user prompts or titles.
-- Preservation of all extracted user queries and OMP recaps as timestamp-ordered inspection items for the `M` popup.
-- Codex rollout filename validation, JSONL prompt normalization, duplicate-thread selection, and compressed-rollout fallback.
-- Last-used timestamp refresh for existing entries.
+- Installed-runner selection through fresh availability checks.
+- Explicit runner discovery without installation gating.
+- Global descending `(updated_ns, runner, session_id)` sorting and selector limits.
+- `SessionEntry` construction and last-used refresh through the same registry.
+
+### `session_manager/runner_api.py` and `runner_helpers.py`
+
+The dependency-light public API defines `Runner`, frozen `DiscoveredSession` and
+`ResumeMatch` dataclasses, neutral option-command recognition, and shared indexed
+argv matching. `Runner.discover()` is abstract; availability, new/resume commands,
+resume recognition, and process matching have working defaults. Concrete plugins
+do not import model, discovery, process orchestration, or the TUI at module scope.
+
+Helpers provide neutral text, prompt, timestamp, and JSON-record handling plus
+`make_session()` and `generic_json_session()`. Runner-specific cleanup remains in
+its runner, supplied as a callback when using generic JSON normalization.
+
+### `session_manager/runner_registry.py`
+
+The lazy process-local singleton `_registry` is shared by all consumers.
+`RunnerRegistry` exposes `get(name)`, `all()`, and first-token-basename ownership
+lookup through `for_command(command)`. Built-ins are enumerated from
+`session_manager.runners` rather than a central supported-name list.
+`load_registry(plugin_dir=None)` also loads sorted, direct `.py` children of
+`~/.config/aisema/runners/`, skipping underscore-prefixed stems. A custom
+`--config` does not relocate this directory. An explicit `plugin_dir` supports
+isolated embedding/tests, not a new CLI option.
+
+Modules export exact integer `RUNNER_API_VERSION = 1` and a concrete `RUNNER`.
+Canonical names and owned executable basenames must be nonempty and unique;
+plugins cannot override built-ins. The first executable of the declared new
+command must be owned. Runners are ordered by `(order, name)`, with external
+default order 100 following built-ins at 0–6. Availability is queried afresh
+without reimporting modules; absent executables do not prevent registration.
+
+Missing/empty plugin directories leave built-ins available. Unreadable existing
+directories, import errors, incompatible versions, and invalid contracts raise
+`RunnerPluginError` with the offending path. Unexpected runtime callback failures
+are not silently converted to empty discovery or inactivity. Plugin code is
+trusted, unsandboxed Python running with the user's privileges; Aisema does not
+install dependencies, alter `sys.path`, scan cwd, or hot-reload modules.
+
+### `session_manager/runners/`
+
+One module per built-in exports the same version/instance contract as external
+plugins. Each owns its filesystem/environment rules, schema normalization,
+resume syntax, and any specialized process matching. Codex owns rollout filename
+validation, prompt normalization, thread deduplication, and compressed-rollout
+fallback. OMP owns query/recap merging and terminal metadata. The working external
+template is `examples/runner_template.py`; onboarding is in `add_runner.md`.
 
 ### `session_manager/process.py`
 
-Finds active sessions by scanning only current-user `/proc` entries, indexing one process/terminal snapshot per refresh round, matching session ID and runner, and falling back to current-user OMP terminal-session metadata when the session ID is not present in the process command line. Codex resumed processes use this same generic runner/argv matching; no Codex-specific process path exists.
+Finds active sessions by scanning only current-user `/proc` entries and sharing one indexed `ProcessSnapshot` per refresh round. It delegates registered commands to the owning runner's `find_process()` hook and unknown commands to shared argv matching. Snapshots retain lazy TTY caching and `runner_data: dict[str, object]` for plugin metadata. Only the OMP runner uses OMP terminal markers; it caches even empty marker results per snapshot. Plugins reuse the snapshot rather than scanning `/proc` per entry. Codex uses generic argv matching.
 
 ### `session_manager/tmux.py`
 
@@ -116,7 +167,7 @@ The session file is selected by the `sessions_file` configuration key, and `--fi
 - Blank lines have no session meaning and are preserved on save.
 - Each non-empty line is user-owned text.
 - Recognized entries begin with a complete resume command followed by one or more spaces and a description.
-- The exact command and separator are preserved unless the entry is edited or its marker is changed.
+- The exact command and separator survive description and marker edits; stored commands are never regenerated for launching.
 - Unrecognized non-empty lines remain visible and searchable, but `parsed=False` prevents editing marker state and launching.
 
 Recognized command patterns:
@@ -125,11 +176,17 @@ Recognized command patterns:
 <runner> [--flag ...] --resume <session-id> [--flag ...]
 <runner> [--flag ...] --resume=<session-id> [--flag ...]
 <runner> [--flag ...] --session <session-id> [--flag ...]
+<runner> [--flag ...] --session=<session-id> [--flag ...]
 goose [--flag ...] session resume --name <session-id> [--flag ...]
 codex resume <session-id>
 ```
 
-The parser specifically supports the command shapes represented by `_ENTRY_RE`; the launch command is otherwise preserved exactly for recognized entries.
+These are built-in examples, not a closed grammar. A registered runner's
+`match_resume()` owns its syntax and must return a nonempty exact command prefix
+and ID. Stored lines require literal separating spaces after that prefix.
+Unregistered executables retain the generic `--resume`/`--session` grammar;
+registered rejections never fall back to it. Removing a custom-syntax plugin
+leaves its saved lines visible, unparsed, and launch-blocked.
 
 ### 4.2 Entry fields
 
@@ -152,8 +209,8 @@ The parser specifically supports the command shapes represented by `_ENTRY_RE`; 
 
 Computed properties:
 
-- `session_id`: ID extracted from Codex's positional `resume` token, `--resume`, `--session`, or `--name`.
-- `runner`: basename of the first command token.
+- `session_id`: ID from the owning runner's parser, or neutral option recognition for unknown commands. Generic `--name` extraction remains available for manually constructed/unparsed commands without making them launchable.
+- `runner`: registered canonical identity, or the first executable basename for unknown commands. Identity and ID are computed from the current command, including after temporary ID adoption.
 - `short_session_id`: final hyphen-separated component of the session ID.
 - `short_command`: runner plus short ID, or the full command if no ID exists.
 - `done`: description ends with ` Done.`, ignoring a trailing ` Throwaway.` marker for the done check.
@@ -195,7 +252,7 @@ Markers are literal description suffixes:
 ### New-session entries
 
 - Created by the `N` shortcut or `:new session`.
-- Start with `source="temporary"`, command equal to the selected harness name, and description `New <runner> session`. If both `agent` and `cursor-agent` are installed, new-session selection excludes `cursor-agent` in favor of `agent`; existing stored commands are not rewritten. Codex is selected through the same installed-executable picker.
+- Start with `source="temporary"`, the selected runner's exact `new_session_command()`, and description `New <runner> session`. Picker eligibility honors each installed runner's `hidden_when_available` relation; the built-in Cursor runner hides when `agent` is installed. Visible-entry/document-entry/remaining-installed ordering is preserved. Existing stored commands are not rewritten.
 - Launch alone does not write the entry to the session file.
 - The TUI records pre-launch known IDs for that runner, polls discovery after launch and during the normal refresh loop, and refreshes discovery when focusing the tracked tmux pane. It replaces the temporary command with the harness-specific resume command when the new ID appears, including `codex resume <id>`.
 - The captured ID remains ephemeral and visible with the `N` marker until the user edits the description.
@@ -207,15 +264,19 @@ Markers are literal description suffixes:
 
 ## 6. Discovery architecture
 
-Supported harness names and discovery order:
+Built-in runner names and discovery order (orders 0–6):
 
 ```text
 copilot, agent, cursor-agent, opencode, omp, goose, codex
 ```
 
-Only commands found by `shutil.which()` are considered installed for normal discovery and new-session selection.
+Automatic discovery and new-session selection use each registered runner's fresh
+`is_available()` result; the default is `shutil.which(command_names[0])` without
+starting a harness. Explicit runner discovery and saved-command parsing do not
+require availability. External runners participate in global discovery through
+the same registry and are ordered by `(order, name)`.
 
-### Sources
+### Built-in sources (owned by their runner modules)
 
 - `copilot`: `~/.copilot/history-session-state` and `~/.copilot/sessions`, JSON files.
 - `agent`: `~/.agent/sessions`, `~/.agent/history`, and `~/.config/agent/sessions`, recursive JSON/JSONL files.
@@ -227,21 +288,21 @@ Only commands found by `shutil.which()` are considered installed for normal disc
 
 ### Normalization
 
-- Session metadata is converted to `DiscoveredSession` with runner, ID, description, resume command, source path, and `updated_ns`.
+- `runner_api.DiscoveredSession` carries canonical runner identity, stable nonempty ID, description, resume command, optional source path (`None` for non-file-backed stores), Unix-nanosecond `updated_ns`, and query/inspection tuples. The generating runner must also recognize the resume command.
 - Numeric timestamps are interpreted heuristically as seconds, milliseconds, microseconds, or nanoseconds based on magnitude.
 - ISO timestamps are accepted, including trailing `Z`.
 - Descriptions prefer the latest user prompt; title/name/description metadata is used as fallback.
 - User queries and OMP recaps are retained as timestamp-ordered `(timestamp, kind, text)` inspection items.
 - Empty descriptions fall back to `<runner> session` where necessary.
 - Codex extracts `session_meta` IDs, validated filename UUIDs, event/response user prompts, and file-mtime update timestamps. Malformed or unknown JSONL records are ignored; `.jsonl.zst` files use filename and mtime fallback only.
-- Resume command generation is special-cased for Cursor Agent, OpenCode, Goose, and Codex:
+- Each runner generates its own resume command. Built-in forms remain:
 
 ```text
 cursor-agent --resume=<id>
 opencode --session <id>
 goose session resume --name <id>
 codex resume <id>
-<other-runner> --resume <id>
+<default-executable> --resume <id>
 ```
 
 `discover_recent()` sorts all discovered metadata newest-first by `(updated_ns, runner, session_id)` and applies the requested global limit. `all` applies no limit.
@@ -419,7 +480,12 @@ For recognized entries:
 5. If not active and currently inside tmux, `tmux.launch()` opens a detached new window named from the first space-delimited token of the session description, truncated to 16 characters. An empty description falls back to `session`. It runs the exact stored command.
 6. If not active outside tmux, curses is suspended and the exact stored command is run through `/bin/sh`; curses is restored afterward.
 
-A process is also considered active through OMP terminal-session metadata: marker files under `$PI_CODING_AGENT_DIR/terminal-sessions` or `~/.omp/agent/terminal-sessions` map `pts-*` files to session JSONL names, then the process on that tty is matched by runner.
+Only an OMP session can also be active through OMP terminal-session metadata:
+marker files under `$PI_CODING_AGENT_DIR/terminal-sessions` or
+`~/.omp/agent/terminal-sessions` map `pts-*` files to session JSONL names, then an
+OMP process on that TTY is matched. Other runners do not inherit this fallback.
+Custom metadata belongs in the runner hook and is cached under
+`snapshot.runner_data[self.name]`.
 
 ## 12. Tests and verification
 
@@ -456,6 +522,7 @@ The current test suite covers:
 - Session-list interval validation and current-user process snapshot reuse.
 - Supported command shapes.
 - CLI behavior without a discovery selector.
+- Drop-in plugins, canonical identity versus executable ownership, custom command boundaries, availability-independent parsing/explicit discovery, contract errors, and isolated new-session lifecycle execution.
 
 A terminal smoke test is recommended for changes affecting curses rendering or launch flow. Date rendering can be exercised with a temporary config containing:
 
@@ -481,6 +548,7 @@ Preserve these invariants when extending the code:
 11. When adding a config key, add it to `DEFAULTS`; the loader and config editor derive their known-key lists from it.
 12. When changing exported model or TUI behavior, update all call sites and add a consumer-visible test.
 13. After source changes, run unit tests, compile checks, and a real TUI smoke scenario for rendering/interaction changes.
+14. Integrate new harnesses through the runner API, not central runner-name branches. Verify real CLI/storage/process facts; the illustrative template and synthetic regression harness do not establish actual HARRI compatibility.
 
 ## 14. Known documentation/maintenance notes
 

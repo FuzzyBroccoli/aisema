@@ -11,13 +11,12 @@ from unittest.mock import patch
 
 from session_manager.config import Config, DEFAULTS, load_config
 from session_manager.config_editor import ConfigEditor
-from session_manager.discovery import (
-    _discover_codex,
-    _generic_json_session,
-    _resume_command,
-    available_harnesses,
-    discover_recent,
-)
+from session_manager.discovery import discover_recent
+from session_manager.runner_helpers import generic_json_session
+from session_manager.runner_registry import load_registry
+from session_manager.runners.agent import RUNNER as AGENT_RUNNER
+from session_manager.runners.codex import RUNNER as CODEX_RUNNER
+from session_manager.runners.cursor_agent import RUNNER as CURSOR_RUNNER, clean_prompt
 from session_manager.model import parse_line
 from session_manager.process import ProcessMatch, find_process, iter_processes, refresh_active
 from session_manager.storage import load_document
@@ -37,6 +36,11 @@ from session_manager.tui import (
 
 
 class SessionManagerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        plugin_dir = self.enterContext(tempfile.TemporaryDirectory())
+        registry = load_registry(plugin_dir=Path(plugin_dir))
+        self.enterContext(patch("session_manager.runner_registry._registry", registry))
+
     def test_tui_startup_reaches_main_screen(self) -> None:
         class Screen:
             def __init__(self) -> None:
@@ -605,7 +609,7 @@ class SessionManagerTests(unittest.TestCase):
             "session_manager.process.iter_processes",
             return_value=[ProcessMatch(42, ("omp", "--resume", "first"))],
         ) as scan:
-            with patch("session_manager.process._terminal_session_markers", return_value=()):
+            with patch("session_manager.runners.omp._terminal_session_markers", return_value=()):
                 refresh_active([first, second])
         self.assertTrue(first.active)
         self.assertFalse(second.active)
@@ -622,8 +626,7 @@ class SessionManagerTests(unittest.TestCase):
             "session_manager.process.iter_processes",
             return_value=[ProcessMatch(42, ("codex", "resume", session_id))],
         ) as scan:
-            with patch("session_manager.process._terminal_session_markers", return_value=()):
-                refresh_active([first, second])
+            refresh_active([first, second])
         self.assertTrue(first.active)
         self.assertFalse(second.active)
         scan.assert_called_once_with()
@@ -994,17 +997,6 @@ class SessionManagerTests(unittest.TestCase):
             self.assertEqual(text.count("# display_command=full"), 1)
             self.assertEqual(text.count("# show_throwaway=false"), 1)
 
-    def test_available_harnesses_includes_codex_in_order(self) -> None:
-        installed = {"copilot", "agent", "cursor-agent", "opencode", "omp", "goose", "codex"}
-        with patch(
-            "session_manager.discovery.shutil.which",
-            side_effect=lambda name: f"/bin/{name}" if name in installed else None,
-        ):
-            self.assertEqual(
-                available_harnesses(),
-                ("copilot", "agent", "cursor-agent", "opencode", "omp", "goose", "codex"),
-            )
-
     def test_codex_discovery_reads_home_and_rollout_messages(self) -> None:
         thread_id = "019e029c-b1e9-7e31-992e-df4638cf8ee8"
         with tempfile.TemporaryDirectory() as directory:
@@ -1090,8 +1082,8 @@ class SessionManagerTests(unittest.TestCase):
             os.utime(duplicate, (5, 5))
             os.utime(compressed, (4, 4))
             with patch.dict(os.environ, {}, clear=True):
-                with patch("session_manager.discovery.Path.home", return_value=root):
-                    sessions = _discover_codex()
+                with patch("session_manager.runners.codex.Path.home", return_value=root):
+                    sessions = CODEX_RUNNER.discover()
         self.assertEqual(
             {item.session_id for item in sessions},
             {thread_id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
@@ -1103,15 +1095,6 @@ class SessionManagerTests(unittest.TestCase):
             item for item in sessions if item.session_id == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         )
         self.assertEqual(compressed_item.description, "Codex session")
-
-    def test_available_harnesses_uses_executable_lookup(self) -> None:
-        with patch(
-            "session_manager.discovery.shutil.which",
-            side_effect=lambda name: f"/bin/{name}" if name in {"omp", "goose"} else None,
-        ):
-            from session_manager.discovery import available_harnesses
-
-            self.assertEqual(available_harnesses(), ("omp", "goose"))
 
     def test_cursor_prompt_cleanup_is_runner_specific(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1127,8 +1110,10 @@ class SessionManagerTests(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            cursor = _generic_json_session("cursor-agent", path, "cursor-id")
-            other = _generic_json_session("agent", path, "agent-id")
+            cursor = generic_json_session(
+                CURSOR_RUNNER, path, "cursor-id", clean_prompt=clean_prompt
+            )
+            other = generic_json_session(AGENT_RUNNER, path, "agent-id")
         assert cursor is not None
         assert other is not None
         self.assertEqual(cursor.description, "Fix the cursor prompt")
@@ -1150,7 +1135,7 @@ class SessionManagerTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            session = _generic_json_session("agent", path)
+            session = generic_json_session(AGENT_RUNNER, path)
         assert session is not None
         self.assertEqual(session.user_queries, ("First question", "Latest question"))
     def test_omp_discovery_merges_recaps_with_queries(self) -> None:
@@ -1214,7 +1199,7 @@ class SessionManagerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with patch.dict(os.environ, {"CODEX_HOME": str(root / "missing")}):
-                self.assertEqual(_discover_codex(), [])
+                self.assertEqual(CODEX_RUNNER.discover(), [])
             path = root / "sessions" / "2026" / "11" / "17" / (
                 "rollout-2026-11-17T12-00-00-019e029c-b1e9-7e31-992e-df4638cf8ee8.jsonl"
             )
@@ -1222,7 +1207,7 @@ class SessionManagerTests(unittest.TestCase):
             path.write_text("{}", encoding="utf-8")
             with patch.dict(os.environ, {"CODEX_HOME": str(root)}):
                 with patch.object(Path, "open", side_effect=PermissionError):
-                    self.assertEqual(_discover_codex(), [])
+                    self.assertEqual(CODEX_RUNNER.discover(), [])
 
     def test_discover_recent_merges_harnesses_by_update_time(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1254,7 +1239,7 @@ class SessionManagerTests(unittest.TestCase):
             )
             os.utime(copilot, (1, 1))
             os.utime(omp, (2, 2))
-            with patch("session_manager.discovery.Path.home", return_value=root):
+            with patch.object(Path, "home", return_value=root):
                 with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(root / ".omp")}):
                     entries = discover_recent("all", runners=("copilot", "omp"))
                     newest = discover_recent(1, runners=("copilot", "omp"))
@@ -1284,7 +1269,7 @@ class SessionManagerTests(unittest.TestCase):
             )
             os.utime(copilot, (2, 2))
             os.utime(codex, (3, 3))
-            with patch("session_manager.discovery.Path.home", return_value=root):
+            with patch.object(Path, "home", return_value=root):
                 with patch.dict(os.environ, {}, clear=True):
                     entries = discover_recent("all", runners=("copilot", "codex"))
                     newest = discover_recent(1, runners=("copilot", "codex"))
@@ -1292,27 +1277,6 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(len(newest), 1)
         self.assertEqual(newest[0].command, f"codex resume {thread_id}")
 
-    def test_resume_command_formats(self) -> None:
-        self.assertEqual(_resume_command("copilot", "copilot-id"), "copilot --resume copilot-id")
-        self.assertEqual(_resume_command("agent", "agent-id"), "agent --resume agent-id")
-        self.assertEqual(
-            _resume_command("cursor-agent", "cursor-id"),
-            "cursor-agent --resume=cursor-id",
-        )
-        self.assertEqual(_resume_command("omp", "omp-id"), "omp --resume omp-id")
-        self.assertEqual(
-            _resume_command("opencode", "opencode-id"),
-            "opencode --session opencode-id",
-        )
-        self.assertEqual(
-            _resume_command("goose", "goose-id"),
-            "goose session resume --name goose-id",
-        )
-
-        self.assertEqual(
-            _resume_command("codex", "codex-id"),
-            "codex resume codex-id",
-        )
     def test_parse_supported_resume_command_shapes(self) -> None:
         cursor = parse_line("cursor-agent --resume=cursor_1 Cursor", 1)
         assert cursor is not None
