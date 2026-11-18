@@ -14,7 +14,7 @@ from session_manager.config_editor import ConfigEditor
 from session_manager.discovery import discover_recent
 from session_manager.runner_helpers import generic_json_session
 from session_manager.runner_registry import load_registry
-from session_manager.runners.agent import RUNNER as AGENT_RUNNER
+from session_manager.runners.copilot import RUNNER as COPILOT_RUNNER
 from session_manager.runners.codex import RUNNER as CODEX_RUNNER
 from session_manager.runners.cursor_agent import RUNNER as CURSOR_RUNNER, clean_prompt
 from session_manager.model import parse_line
@@ -376,7 +376,7 @@ class SessionManagerTests(unittest.TestCase):
             self.assertEqual(entry.description, "New goose session")
             self.assertEqual(path.read_text(encoding="utf-8"), "goose session resume --name old Goose session\nomp --resume newer OMP session\n")
 
-    def test_new_session_prefers_agent_over_cursor_agent(self) -> None:
+    def test_new_session_uses_cursor_identity_and_preserves_agent_commands(self) -> None:
         class Window:
             def getmaxyx(self) -> tuple[int, int]:
                 return (24, 80)
@@ -384,7 +384,7 @@ class SessionManagerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sessions.txt"
             path.write_text(
-                "cursor-agent --resume stored Stored cursor session\n",
+                "agent --resume stored Stored cursor session\n",
                 encoding="utf-8",
             )
             document = load_document(path)
@@ -408,15 +408,22 @@ class SessionManagerTests(unittest.TestCase):
 
             with patch(
                 "session_manager.tui.available_harnesses",
-                return_value=("cursor-agent", "agent"),
-            ):
-                self.assertEqual(app._new_session_harnesses(), ["agent"])
-                with patch.object(app, "_choose_harness", return_value="agent"):
+                return_value=("cursor-agent",),
+            ), patch("session_manager.runners.cursor_agent.shutil.which", return_value="/fixture/cursor-agent"):
+                self.assertEqual(app._new_session_harnesses(), ["cursor-agent"])
+                with patch.object(app, "_choose_harness", return_value="cursor-agent"):
                     with patch.object(app, "_launch_selected"):
                         app._new_session()
 
-            self.assertEqual(document.entries[0].command, "cursor-agent --resume stored")
-            self.assertEqual(document.entries[-1].command, "agent")
+            self.assertEqual(document.entries[0].runner, "cursor-agent")
+            self.assertEqual(document.entries[0].session_id, "stored")
+            self.assertEqual(document.entries[0].command, "agent --resume stored")
+            self.assertEqual(document.entries[-1].command, "cursor-agent")
+            self.assertEqual(document.entries[-1].runner, "cursor-agent")
+            self.assertEqual(
+                path.read_text(encoding="utf-8"),
+                "agent --resume stored Stored cursor session\n",
+            )
 
 
     def test_new_session_id_stays_temporary_until_description_edit(self) -> None:
@@ -1136,7 +1143,7 @@ class SessionManagerTests(unittest.TestCase):
             cursor = generic_json_session(
                 CURSOR_RUNNER, path, "cursor-id", clean_prompt=clean_prompt
             )
-            other = generic_json_session(AGENT_RUNNER, path, "agent-id")
+            other = generic_json_session(COPILOT_RUNNER, path, "copilot-id")
         assert cursor is not None
         assert other is not None
         self.assertEqual(cursor.description, "Fix the cursor prompt")
@@ -1144,11 +1151,11 @@ class SessionManagerTests(unittest.TestCase):
         self.assertIn("<user_query>", other.description)
     def test_discovery_preserves_all_user_queries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "agent.json"
+            path = Path(directory) / "copilot.json"
             path.write_text(
                 json.dumps(
                     {
-                        "sessionId": "agent-id",
+                        "sessionId": "copilot-id",
                         "messages": [
                             {"role": "user", "content": "First question"},
                             {"role": "assistant", "content": "Answer"},
@@ -1158,7 +1165,7 @@ class SessionManagerTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            session = generic_json_session(AGENT_RUNNER, path)
+            session = generic_json_session(COPILOT_RUNNER, path)
         assert session is not None
         self.assertEqual(session.user_queries, ("First question", "Latest question"))
     def test_omp_discovery_merges_recaps_with_queries(self) -> None:
@@ -1301,9 +1308,17 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(newest[0].command, f"codex resume {thread_id}")
 
     def test_parse_supported_resume_command_shapes(self) -> None:
-        cursor = parse_line("cursor-agent --resume=cursor_1 Cursor", 1)
-        assert cursor is not None
-        self.assertEqual(cursor.session_id, "cursor_1")
+        for command in (
+            "cursor-agent --resume=cursor_1",
+            "agent --resume=cursor_1",
+            "agent --resume cursor_1",
+        ):
+            with self.subTest(command=command):
+                entry = parse_line(f"{command} Cursor", 1)
+                assert entry is not None
+                self.assertEqual(entry.runner, "cursor-agent")
+                self.assertEqual(entry.session_id, "cursor_1")
+                self.assertEqual(entry.command, command)
         self.assertEqual(parse_line("opencode --session ses_1 OpenCode", 1).session_id, "ses_1")
         self.assertEqual(
             parse_line("goose session resume --name goose_1 Goose", 1).session_id,

@@ -142,7 +142,7 @@ template is `examples/runner_template.py`; onboarding is in `add_runner.md`.
 
 ### `session_manager/process.py`
 
-Finds active sessions by scanning only current-user `/proc` entries and sharing one indexed `ProcessSnapshot` per refresh round. It delegates registered commands to the owning runner's `find_process()` hook and unknown commands to shared argv matching. Snapshots retain lazy TTY caching and `runner_data: dict[str, object]` for plugin metadata. Only the OMP runner uses OMP terminal markers; it caches even empty marker results per snapshot. Plugins reuse the snapshot rather than scanning `/proc` per entry. Codex uses generic argv matching.
+Finds active sessions by scanning only current-user `/proc` entries and sharing one indexed `ProcessSnapshot` per refresh round. It delegates registered commands to the owning runner's `find_process()` hook and unknown commands to shared argv matching. Snapshots retain lazy TTY caching and `runner_data: dict[str, object]` for plugin metadata. OMP caches terminal markers and Cursor caches open session-store file-descriptor ownership, including empty results, once per snapshot. Plugins reuse the snapshot rather than scanning `/proc` per entry. Codex uses generic argv matching.
 
 ### `session_manager/tmux.py`
 
@@ -252,7 +252,7 @@ Markers are literal description suffixes:
 ### New-session entries
 
 - Created by the `N` shortcut or `:new session`.
-- Start with `source="temporary"`, the selected runner's exact `new_session_command()`, and description `New <runner> session`. Picker eligibility honors each installed runner's `hidden_when_available` relation; the built-in Cursor runner hides when `agent` is installed. Visible-entry/document-entry/remaining-installed ordering is preserved. Existing stored commands are not rewritten.
+- Start with `source="temporary"`, the selected runner's exact `new_session_command()`, and description `New <runner> session`. Picker eligibility honors each installed runner's `hidden_when_available` relation. Cursor has one canonical `cursor-agent` choice even when only its `agent` executable alias is installed. Generated commands prefer installed `cursor-agent`, fall back to installed `agent`, and default to `cursor-agent` when neither is installed. Visible-entry/document-entry/remaining-installed ordering is preserved. Existing stored commands using either executable are not rewritten.
 - Launch alone does not write the entry to the session file.
 - The TUI records pre-launch known IDs for that runner, polls discovery after launch and during the normal refresh loop, and refreshes discovery when focusing the tracked tmux pane. It replaces the temporary command with the harness-specific resume command when the new ID appears, including `codex resume <id>`.
 - A live tracked tmux pane also establishes activity before the harness has assigned an ID. Pane disappearance removes that activity evidence; normal process matching still applies.
@@ -270,7 +270,7 @@ Markers are literal description suffixes:
 Built-in runner names and discovery order (orders 0–6):
 
 ```text
-copilot, agent, cursor-agent, opencode, omp, goose, codex
+copilot, cursor-agent, opencode, omp, goose, codex
 ```
 
 Automatic discovery and new-session selection use each registered runner's fresh
@@ -279,10 +279,13 @@ starting a harness. Explicit runner discovery and saved-command parsing do not
 require availability. External runners participate in global discovery through
 the same registry and are ordered by `(order, name)`.
 
+Cursor owns `command_names = ('cursor-agent', 'agent')` under the sole canonical
+identity `cursor-agent`. Its availability check accepts either executable; parsing
+saved commands preserves their original executable and command text.
+
 ### Built-in sources (owned by their runner modules)
 
 - `copilot`: `~/.copilot/history-session-state` and `~/.copilot/sessions`, JSON files.
-- `agent`: `~/.agent/sessions`, `~/.agent/history`, and `~/.config/agent/sessions`, recursive JSON/JSONL files.
 - `cursor-agent`: `~/.cursor/projects/*/agent-transcripts/*/*.jsonl`.
 - `opencode`: first usable SQLite database at `~/.local/share/opencode/opencode.db` or `~/.config/opencode/opencode.db`; reads root sessions from `session`.
 - `omp`: `$PI_CODING_AGENT_DIR/sessions`, or `~/.omp/agent/sessions`; recursively reads JSONL files and joins recaps from `history.db.session_recaps`.
@@ -489,6 +492,13 @@ marker files under `$PI_CODING_AGENT_DIR/terminal-sessions` or
 OMP process on that TTY is matched. Other runners do not inherit this fallback.
 Custom metadata belongs in the runner hook and is cached under
 `snapshot.runner_data[self.name]`.
+Cursor additionally checks open file descriptors of processes indexed under
+`cursor-agent` or `agent`, deduplicated by PID, when argv does not identify the
+session. Exact `~/.cursor/chats/<project>/<session-id>/store.db` paths and their
+`-wal`/`-shm` sidecars establish ownership by the session-ID directory component,
+not arbitrary substring matching. The ownership mapping, including an empty
+result, is cached in `snapshot.runner_data['cursor-agent']` once per snapshot,
+not rescanned per entry.
 
 ## 12. Tests and verification
 

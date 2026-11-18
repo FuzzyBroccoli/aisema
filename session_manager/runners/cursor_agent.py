@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shutil
+from typing import TYPE_CHECKING
 from ..runner_api import DiscoveredSession, Runner
 from ..runner_helpers import generic_json_session
 
@@ -9,6 +12,9 @@ RUNNER_API_VERSION = 1
 import re
 from ..runner_helpers import clean_text
 
+if TYPE_CHECKING:
+    from ..process import ProcessMatch, ProcessSnapshot
+
 def clean_prompt(prompt: str) -> str:
     prompt = re.sub(r"<timestamp>.*?</timestamp>", "", prompt, flags=re.DOTALL)
     prompt = re.sub(r"<user_query>(.*?)</user_query>", r"\1", prompt, flags=re.DOTALL)
@@ -16,12 +22,56 @@ def clean_prompt(prompt: str) -> str:
 
 class CursorAgentRunner(Runner):
     name = 'cursor-agent'
-    command_names = ('cursor-agent',)
+    command_names = ('cursor-agent', 'agent')
     order = 2
-    hidden_when_available = ("agent",)
+
+    def is_available(self) -> bool:
+        return any(shutil.which(name) is not None for name in self.command_names)
+
+    def new_session_command(self) -> str:
+        return next(
+            (name for name in self.command_names if shutil.which(name) is not None),
+            self.command_names[0],
+        )
 
     def resume_command(self, session_id: str) -> str:
-        return f"cursor-agent --resume={session_id}"
+        return f"{self.new_session_command()} --resume={session_id}"
+
+    def _fd_session_processes(self, snapshot: ProcessSnapshot) -> dict[str, ProcessMatch]:
+        root = Path.home() / ".cursor" / "chats"
+        found: dict[str, ProcessMatch] = {}
+        scanned: set[int] = set()
+        for name in self.command_names:
+            for process in snapshot.by_runner.get(name, ()):
+                if process.pid in scanned:
+                    continue
+                scanned.add(process.pid)
+                try:
+                    for fd in (Path("/proc") / str(process.pid) / "fd").iterdir():
+                        try:
+                            target = os.readlink(fd).removesuffix(" (deleted)")
+                            parts = Path(target).relative_to(root).parts
+                        except (OSError, ValueError):
+                            continue
+                        if (
+                            len(parts) == 3
+                            and ".." not in parts
+                            and parts[2] in ("store.db", "store.db-wal", "store.db-shm")
+                        ):
+                            found.setdefault(parts[1], process)
+                except OSError:
+                    continue
+        return found
+
+    def find_process(self, session_id: str, snapshot: ProcessSnapshot) -> ProcessMatch | None:
+        if not session_id:
+            return None
+        match = super().find_process(session_id, snapshot)
+        if match is not None:
+            return match
+        if self.name not in snapshot.runner_data:
+            snapshot.runner_data[self.name] = self._fd_session_processes(snapshot)
+        return snapshot.runner_data[self.name].get(session_id)
 
     def discover(self) -> list[DiscoveredSession]:
         root = Path.home() / ".cursor" / "projects"

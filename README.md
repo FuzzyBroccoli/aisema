@@ -13,7 +13,6 @@ A small curses TUI for browsing, searching, sorting, editing, and resuming codin
 - Create a temporary new session with `N` or `:new session`.
 - Discover recent sessions from installed harnesses:
   - `copilot`
-  - `agent`
   - `cursor-agent`
   - `opencode`
   - `omp`
@@ -132,7 +131,7 @@ See [`session_format.md`](session_format.md) for the complete format and renderi
 Press `N` or run `:new session` to choose an installed harness and create a temporary session.
 
 The manager records the existing IDs for that harness, launches the new session, and polls harness discovery for the newly generated ID. When the ID becomes available, the in-memory command changes to the harness-specific resume command and the hash appears in the session list with the `N` marker.
-When both `agent` and `cursor-agent` are installed, the new-session picker offers the shorter `agent` launcher. Existing stored entries keep their exact stored runner command.
+Cursor has one runner identity, `cursor-agent`, owning both `cursor-agent` and `agent` executables. Either executable makes it available; the `N` picker always offers `cursor-agent`. Generated new/resume commands prefer `cursor-agent` when installed and fall back to `agent` when only that alias is installed; with neither installed they default to `cursor-agent`. Existing stored commands using either name remain exact and resume without rewriting.
 
 New-session behavior:
 
@@ -151,6 +150,8 @@ New-session behavior:
 - For ordinary inactive persisted entries, `Enter` launches the exact stored command in a new tmux window.
 
 Tmux focus uses pane/window identifiers. Those identifiers are separate from the agent harness session ID; the harness ID comes from the harness’s session metadata.
+
+Cursor activity detection first matches session IDs in argv, then checks processes owned by `cursor-agent` or `agent` for open `~/.cursor/chats/<project>/<session-id>/store.db` file descriptors (including `-wal` and `-shm` sidecars). The structural path identifies the exact session ID, not an arbitrary substring. Ownership metadata, including an empty result, is cached in `snapshot.runner_data['cursor-agent']` once per process snapshot.
 
 ## Keyboard controls
 

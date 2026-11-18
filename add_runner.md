@@ -89,9 +89,8 @@ instance of `Runner` with an implemented `discover()` method.
   owned by this runner, including the executable starting its new-session
   command. Names and executable ownership must not conflict with another plugin
   or a built-in. Plugins cannot replace built-ins.
-- `order: int = 100`: registry order is `(order, name)`. Built-ins occupy orders
-  0–6 in the existing copilot, agent, cursor-agent, opencode, omp, goose, codex
-  order.
+- `order: int = 100`: registry order is `(order, name)`. Built-ins retain orders
+  0, 2–6 for copilot, cursor-agent, opencode, omp, goose, codex respectively.
 - `hidden_when_available: tuple[str, ...] = ()`: hide this runner in the
   new-session picker if any listed canonical runner is installed. This does not
   alter discovery, parsing, or identity.
@@ -99,6 +98,13 @@ instance of `Runner` with an implemented `discover()` method.
   starting a harness. Override only for verified installation rules. Availability
   is checked afresh for automatic discovery and new-session choices. Unavailable
   runners still parse stored commands and support explicit runner discovery.
+
+Cursor is a built-in example of executable aliases: its canonical name is
+`cursor-agent`, its `command_names` are `('cursor-agent', 'agent')`, and its
+availability override accepts either executable. Generated new/resume commands
+prefer installed `cursor-agent`, fall back to installed `agent`, and default to
+`cursor-agent` when neither is installed. The picker always uses the canonical
+identity, and parsing preserves saved commands using either name.
 
 Ownership is selected from the basename of the first whitespace-separated
 command token. A canonical name may differ from the executable: a runner named
@@ -201,6 +207,11 @@ rescan `/proc` per entry or expand activity detection to other users. Return a
 real `ProcessMatch` only when activity is established. Propagate unexpected hook
 failures instead of reporting inactivity and risking duplicate launches. OMP's
 terminal-marker fallback belongs only to the OMP runner, not other plugins.
+Cursor's fallback checks open `~/.cursor/chats/<project>/<session-id>/store.db`
+file descriptors and `-wal`/`-shm` sidecars of processes owned by `cursor-agent`
+or `agent`, deduplicated by PID. The exact session-ID directory component
+establishes ownership. It caches the mapping, including an empty result, in
+`snapshot.runner_data['cursor-agent']` once per snapshot.
 
 ## 4. Existing lifecycle and verification
 
