@@ -255,8 +255,11 @@ Markers are literal description suffixes:
 - Start with `source="temporary"`, the selected runner's exact `new_session_command()`, and description `New <runner> session`. Picker eligibility honors each installed runner's `hidden_when_available` relation; the built-in Cursor runner hides when `agent` is installed. Visible-entry/document-entry/remaining-installed ordering is preserved. Existing stored commands are not rewritten.
 - Launch alone does not write the entry to the session file.
 - The TUI records pre-launch known IDs for that runner, polls discovery after launch and during the normal refresh loop, and refreshes discovery when focusing the tracked tmux pane. It replaces the temporary command with the harness-specific resume command when the new ID appears, including `codex resume <id>`.
+- A live tracked tmux pane also establishes activity before the harness has assigned an ID. Pane disappearance removes that activity evidence; normal process matching still applies.
+- On first ID adoption, an untouched placeholder takes the discovered description, preserving done/throwaway markers. User-edited descriptions are retained instead.
 - The captured ID remains ephemeral and visible with the `N` marker until the user edits the description.
 - Editing the description materializes the entry into `sessions.txt`, preserving the captured resume command and updated timestamp. Done/throwaway changes alone do not materialize a new-session entry.
+- An edited description with no ID uses `color_error`, including when selected. It stays in memory until discovery supplies an ID; a successful deferred save clears the pending-edit state and error message, and normal row coloring resumes.
 
 ### Atomic saves
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import curses
 import json
 import os
 from pathlib import Path
@@ -301,6 +302,98 @@ class RunnerPluginTests(unittest.TestCase):
                 registry = load_registry(self.fixture.plugin_dir)
                 with patch("session_manager.runner_registry._registry", registry):
                     self.assertFalse(self.entry().parsed)
+
+    def test_first_id_adopts_discovered_description_without_persisting(self):
+        for suffix in ("", " Done.", " Throwaway.", " Done. Throwaway."):
+            with self.subTest(suffix=suffix):
+                records = self.fixture.home / ".harri" / "sessions"
+                (records / "h-002.json").unlink(missing_ok=True)
+                app = self.app()
+                with patch.object(app, "_choose_harness", return_value="harri"), patch.object(
+                    app, "_launch_selected"
+                ):
+                    app._new_session()
+                entry = app.document.entries[0]
+                if "Done." in suffix:
+                    entry.toggle_done()
+                if "Throwaway." in suffix:
+                    entry.toggle_throwaway()
+                with enter_on_stdin():
+                    subprocess.run([str(self.fixture.executable), "start"], env=self.fixture.env, check=True)
+                app._refresh_new_sessions()
+                self.assertEqual(entry.description, "Started fixture" + suffix)
+                self.assertEqual(entry.session_id, "h-002")
+                self.assertTrue(entry.temporary)
+                self.assertEqual(self.fixture.sessions.read_text(), "")
+                record = json.loads((records / "h-002.json").read_text())
+                record["description"] = "Later prompt"
+                (records / "h-002.json").write_text(json.dumps(record))
+                app._refresh_new_sessions()
+                self.assertEqual(entry.description, "Started fixture" + suffix)
+
+    def test_tracked_new_session_activity_follows_tmux_pane_lifetime(self):
+        app = self.app()
+        with patch.object(app, "_choose_harness", return_value="harri"), patch.object(
+            app, "_launch_selected"
+        ):
+            app._new_session()
+        entry = app.document.entries[0]
+        pane = SimpleNamespace(pane_id="%42")
+        app.new_session_panes[id(entry)] = pane
+        with patch("session_manager.process.iter_processes", return_value=()):
+            with patch("session_manager.tui.tmux.panes", return_value=[pane]):
+                app._refresh_active()
+                self.assertEqual(entry.session_id, "")
+                self.assertEqual(_status_marker(entry), "A  N")
+            with patch("session_manager.tui.tmux.panes", return_value=[]):
+                app._refresh_active()
+                self.assertEqual(_status_marker(entry), "   N")
+                self.assertNotIn(id(entry), app.new_session_panes)
+
+    def test_pending_description_uses_error_color_until_id_adoption(self):
+        class DrawingScreen(Screen):
+            def __init__(self):
+                self.drawn = {}
+
+            def erase(self):
+                self.drawn.clear()
+
+            def addnstr(self, y, x, text, width, attr=0):
+                self.drawn[text[:width]] = attr
+
+        app = self.app()
+        app.stdscr = DrawingScreen()
+        app.color_pairs = {"error": 1, "selected": 2, "description": 3}
+        with patch.object(app, "_choose_harness", return_value="harri"), patch.object(
+            app, "_launch_selected"
+        ):
+            app._new_session()
+        entry = app.document.entries[0]
+        with patch("session_manager.tui._read_line", return_value="My pending task"), patch(
+            "session_manager.tui.time.sleep"
+        ):
+            app._edit()
+        self.assertTrue(app.message_is_error)
+        self.assertEqual(self.fixture.sessions.read_text(), "")
+        with patch("session_manager.tui.time.monotonic", return_value=1):
+            app.last_active_refresh = 1
+            app._draw()
+            self.assertEqual(app.stdscr.drawn["My pending task"], 1 | curses.A_REVERSE)
+            app.selected = -1
+            app._draw()
+            self.assertEqual(app.stdscr.drawn["My pending task"], 1)
+            with enter_on_stdin():
+                subprocess.run([str(self.fixture.executable), "start"], env=self.fixture.env, check=True)
+            app._refresh_new_sessions()
+            app._draw()
+            self.assertEqual(app.stdscr.drawn["My pending task"], 2 | curses.A_REVERSE)
+            app.selected = -1
+            app._draw()
+            self.assertEqual(app.stdscr.drawn["My pending task"], 3)
+        self.assertFalse(app.message_is_error)
+        self.assertEqual(entry.description, "My pending task")
+        self.assertEqual(entry.session_id, "h-002")
+        self.assertEqual(self.fixture.sessions.read_text(), "harri-cli attach h-002 My pending task")
 
     def test_new_session_real_launch_adoption_deferred_save_and_attach(self):
         original = self.fixture.sessions.read_bytes()

@@ -406,7 +406,7 @@ class SessionApp:
     def _attr(self, role: str, selected: bool = False) -> int:
         attr = self.color_pairs.get(role, 0)
         if selected:
-            if role != "active":
+            if role not in ("active", "error"):
                 attr = self.color_pairs.get("selected", attr)
             attr |= curses.A_REVERSE
         return attr
@@ -785,6 +785,21 @@ class SessionApp:
         finally:
             del popup
 
+    def _refresh_active(self) -> None:
+        process.refresh_active(self.document.entries)
+        tracked = getattr(self, "new_session_panes", {})
+        if not tracked:
+            return
+        live_panes = {pane.pane_id for pane in tmux.panes()}
+        for entry in self.document.entries:
+            pane = tracked.get(id(entry))
+            if pane is None:
+                continue
+            if pane.pane_id in live_panes:
+                entry.active = True
+            else:
+                tracked.pop(id(entry), None)
+
     def _remember_new_session(self, entry: SessionEntry) -> None:
         known = {
             candidate.session_id
@@ -816,12 +831,22 @@ class SessionApp:
             entry.command = candidate.command
             entry.separator = " "
             entry.last_used_ns = candidate.last_used_ns
+            if id(entry) not in description_edits:
+                done, throwaway = entry.done, entry.throwaway
+                entry.set_description(candidate.description)
+                if done:
+                    entry.mark_done()
+                if throwaway and not entry.throwaway:
+                    entry.toggle_throwaway()
             entry._dirty = True
             known.add(candidate.session_id)
             if id(entry) in description_edits and self._save(entry):
                 description_edits.discard(id(entry))
                 baselines.pop(id(entry), None)
+                self._set_message("description saved")
+
     def _refresh_sessions(self) -> None:
+        self._refresh_new_sessions()
         loaded_count = len(self.document.entries)
         self.refresh_count = loaded_count + 5
         current = self._selected_entry()
@@ -844,7 +869,7 @@ class SessionApp:
             if not entry.session_id or (entry.runner, entry.session_id) not in known
         ][:5]
         self.document.add_discovered(additions)
-        process.refresh_active(self.document.entries)
+        self._refresh_active()
         if self.show_last_used_date:
             refresh_last_used(self.document.entries)
         self.last_active_refresh = time.monotonic()
@@ -1121,8 +1146,8 @@ class SessionApp:
             and not self.help_visible
             and now - self.last_active_refresh >= self.config.session_list_update_interval
         ):
-            process.refresh_active(self.document.entries)
             self._refresh_new_sessions()
+            self._refresh_active()
             self.last_active_refresh = now
             self.rebuild(self.visible[self.selected] if self.visible and self.selected < len(self.visible) else None)
         self.stdscr.erase()
@@ -1175,6 +1200,8 @@ class SessionApp:
                 )
             remaining = max(0, width - description_x - 1)
             desc_role = "throwaway" if entry.throwaway else ("done" if entry.done else "description")
+            if id(entry) in self.new_session_description_edits and not entry.session_id:
+                desc_role = "error"
             desc_attr = self._attr(desc_role, selected)
             _safe_addstr(self.stdscr, y, description_x, entry.description, remaining, desc_attr)
 

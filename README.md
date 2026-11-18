@@ -138,9 +138,16 @@ New-session behavior:
 
 - Launching alone does not write the temporary entry to `sessions.txt`.
 - Editing the description saves the captured resume command and ID.
-- Leaving the description untouched keeps the entry ephemeral.
-- If discovery is delayed, description editing waits briefly for the ID and will not save a bare runner command.
-- In tmux, `Enter` focuses the original pane created for a new session instead of opening another window.
+- Leaving the description untouched keeps the entry ephemeral. On first ID
+  discovery, its placeholder is replaced by the harness's discovered description
+  (usually prompt text); a user-edited description is never replaced.
+- If discovery is delayed, description editing waits briefly for the ID and will
+  not save a bare runner command. An edited description without an ID is shown in
+  the error color (red by default), even when selected. Once the ID is discovered,
+  the edit is saved and normal description coloring returns.
+- In tmux, `A` remains visible while the tracked new-session pane exists, even
+  before an ID is available. `Enter` focuses that original pane instead of opening
+  another window.
 - For ordinary inactive persisted entries, `Enter` launches the exact stored command in a new tmux window.
 
 Tmux focus uses pane/window identifiers. Those identifiers are separate from the agent harness session ID; the harness ID comes from the harness’s session metadata.
