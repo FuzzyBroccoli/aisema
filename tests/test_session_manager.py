@@ -158,13 +158,17 @@ class SessionManagerTests(unittest.TestCase):
             def getch(self) -> int:
                 return next(self.keys)
 
-        def read(keys: list[int], initial: str = "Long description") -> str | None:
+        def read(
+            keys: list[int],
+            initial: str = "Long description",
+            enable_clipboard: bool = True,
+        ) -> str | None:
             with patch("session_manager.tui.curses.curs_set"):
                 return _read_line(
                     Screen(keys),
                     "edit> ",
                     initial,
-                    enable_clipboard=True,
+                    enable_clipboard=enable_clipboard,
                 )
 
         enter = 10
@@ -172,6 +176,25 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(read([11, 21, enter]), "Long description")
         self.assertEqual(read([11, enter]), "")
         self.assertEqual(read([21, enter], "New text"), "New text")
+
+        d = ord("d")
+        cases = [
+            ("opening cut", "dd", "Long description", True, ""),
+            ("later dd", "add", "Long description", True, "Long descriptionadd"),
+            ("address", "address", "Long description", True, "Long descriptionaddress"),
+            ("single d", "d", "Long description", True, "Long descriptiond"),
+            ("consumed prefix", "dxdd", "Long description", True, "Long descriptiondxdd"),
+            ("no rearming after cut", "dddd", "Long description", True, "dd"),
+            ("navigation", [curses.KEY_HOME, d, d], "Long description", True, "ddLong description"),
+            ("control cut paste", [11, d, d, 21], "Long description", True, "ddLong description"),
+            ("idle polls", [-1, d, -1, d, 21], "Long description", True, "Long description"),
+            ("empty initial", "add", "", True, "add"),
+            ("clipboard disabled", "dd", "Long description", False, "Long descriptiondd"),
+        ]
+        for name, keys, initial, enable_clipboard, expected in cases:
+            with self.subTest(name=name):
+                input_keys = [ord(key) for key in keys] if isinstance(keys, str) else keys
+                self.assertEqual(read(input_keys + [enter], initial, enable_clipboard), expected)
 
     def test_t_alias_toggles_throwaway_marker(self) -> None:
         class Screen:

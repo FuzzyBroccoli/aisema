@@ -227,6 +227,7 @@ def _read_line(
     cursor = len(buffer)
     cut_buffer: Optional[str] = None
     pending_delete = False
+    initial_delete_available = enable_clipboard
     try:
         curses.curs_set(1)
     except curses.error:
@@ -258,19 +259,22 @@ def _read_line(
             pass
         stdscr.refresh()
         key = stdscr.getch()
-        if enable_clipboard and key == ord("d"):
-            if pending_delete:
+        if enable_clipboard and key == -1:
+            continue
+        if pending_delete:
+            pending_delete = False
+            if key == ord("d"):
                 cut_buffer = "".join(buffer)
                 buffer.clear()
                 cursor = 0
-                pending_delete = False
-            else:
-                pending_delete = True
-            continue
-        if enable_clipboard and pending_delete:
+                continue
             buffer.insert(cursor, "d")
             cursor += 1
-            pending_delete = False
+        elif initial_delete_available and key == ord("d"):
+            initial_delete_available = False
+            pending_delete = True
+            continue
+        initial_delete_available = False
         if key in (10, 13, curses.KEY_ENTER):
             return finish("".join(buffer))
         if key == 27:

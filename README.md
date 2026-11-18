@@ -166,6 +166,12 @@ Tmux focus uses pane/window identifiers. Those identifiers are separate from the
 | `Q` | Quit. |
 | `Escape` | Clear search or close a modal context. |
 
+In the `E` description editor, lowercase `dd` cuts the whole line only when
+these are the first two input keys after opening the editor. Idle waits do not
+count as input. Any other first key consumes this shortcut; later `dd` is
+ordinary text, including after a cut. `Ctrl-K` cuts the whole line at any time,
+and `Ctrl-U` pastes the most recent cut from the current edit.
+
 ## Colon commands
 
 ```text
