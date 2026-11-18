@@ -6,8 +6,11 @@ from pathlib import Path
 import re
 from typing import Any, Optional
 
-from ..runner_api import DiscoveredSession, Runner, ResumeMatch, match_option_resume
+from ..runner_api import (
+    DiscoveredSession, NativeFork, Runner, ResumeMatch, SummaryCommand, match_option_resume,
+)
 from ..runner_helpers import clean_text, timestamp_ns, make_session
+from ..runner_commands import command_help, context_instruction, has_command
 
 RUNNER_API_VERSION = 1
 
@@ -98,6 +101,22 @@ class CodexRunner(Runner):
 
     def resume_command(self, session_id: str) -> str:
         return f"codex resume {session_id}"
+
+    def native_fork(self, session_id: str) -> NativeFork | None:
+        if has_command(command_help("codex"), "fork"):
+            return NativeFork(("codex", "fork", session_id))
+        return None
+
+    def context_command(self, context_file: Path) -> tuple[str, ...]:
+        return ("codex", context_instruction(context_file))
+
+    def summary_command(self, output_file: Path) -> SummaryCommand:
+        return SummaryCommand(
+            ("codex", "exec", "--ephemeral", "--sandbox", "read-only",
+             "-c", 'approval_policy="never"', "--skip-git-repo-check", "--color", "never",
+             "--output-last-message", str(output_file), "-"),
+            output_file=output_file,
+        )
 
     def match_resume(self, text: str) -> ResumeMatch | None:
         match = re.match(r"^(?P<command>\S+\s+resume\s+(?!-)(?P<id>\S+))(?= |$)", text)

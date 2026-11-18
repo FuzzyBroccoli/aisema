@@ -8,8 +8,9 @@ import re
 import sqlite3
 from typing import TYPE_CHECKING, Optional
 
-from ..runner_api import DiscoveredSession, Runner
+from ..runner_api import DiscoveredSession, NativeFork, Runner, SummaryCommand
 from ..runner_helpers import user_prompt, timestamp_ns, make_session
+from ..runner_commands import command_help, has_option
 
 RUNNER_API_VERSION = 1
 
@@ -135,6 +136,26 @@ class OmpRunner(Runner):
     name = "omp"
     command_names = ("omp",)
     order = 4
+
+    def native_fork(self, session_id: str) -> NativeFork:
+        if has_option(command_help("omp"), "--fork"):
+            return NativeFork(("omp", "--fork", session_id))
+        return NativeFork(("omp", "--resume", session_id), instruction="/fork")
+
+    def context_command(self, context_file: Path) -> tuple[str, ...]:
+        overlay = context_file.with_name(context_file.name + ".omp.yml")
+        if context_file.is_file():
+            descriptor = os.open(overlay, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write("autoResume: false\n")
+        return ("omp", "--config", str(overlay), "@" + str(context_file.resolve()))
+
+    def summary_command(self, output_file: Path) -> SummaryCommand:
+        # --no-session selects an in-memory session before consulting autoResume.
+        return SummaryCommand(
+            ("omp", "--print", "--mode", "text", "--no-session", "--no-tools",
+             "--no-extensions", "--no-skills", "--no-rules", "--no-lsp", "--no-title")
+        )
 
     def find_process(self, session_id: str, snapshot: ProcessSnapshot) -> ProcessMatch | None:
         match = super().find_process(session_id, snapshot)

@@ -30,6 +30,28 @@ class ResumeMatch:
     session_id: str
 
 
+@dataclass(frozen=True)
+class SessionContent:
+    """Read-only complete session data, not just prompts or active context."""
+
+    text: str
+    cwd: Path | None = None
+
+
+@dataclass(frozen=True)
+class NativeFork:
+    argv: tuple[str, ...]
+    instruction: str = ""
+
+
+@dataclass(frozen=True)
+class SummaryCommand:
+    argv: tuple[str, ...]
+    output_format: str = "text"
+    output_file: Path | None = None
+    cwd: Path | None = None
+
+
 _OPTION_COMMAND = (
     r"^(?P<command>"
     r"(?:\S+(?:\s+--\S+)*\s+--resume(?:\s+|=)\S+(?:\s+--\S+)*"
@@ -93,3 +115,19 @@ class Runner(ABC):
         self, session_id: str, snapshot: ProcessSnapshot
     ) -> ProcessMatch | None:
         return match_argv_process(self.command_names, session_id, snapshot)
+
+    def session_content(self, session_id: str) -> SessionContent:
+        from .session_context import load_session_content
+
+        return load_session_content(self.discover(), session_id)
+
+    def native_fork(self, session_id: str) -> NativeFork | None:
+        return None
+
+    def context_command(self, context_file: Path) -> tuple[str, ...] | None:
+        """Open a fresh interactive session with a durable context file."""
+        return None
+
+    def summary_command(self, output_file: Path) -> SummaryCommand | None:
+        """Summarize a fresh stdin prompt without resuming the source."""
+        return None

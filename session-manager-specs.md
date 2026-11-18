@@ -440,7 +440,7 @@ Shortcuts are case-insensitive unless noted:
 | Up/Down | Move selection. |
 | Page Up/Page Down | Move one screen. |
 | Home/End | Jump to first/last row. |
-| `F` | Prompt for `:find`. |
+| `F` | Fork selected session using native fork, another runner, or referenced Markdown. |
 | `Ctrl-W` | Prompt for `:find`. |
 | `E` | Edit selected description. |
 | `D` | Toggle done marker. |
@@ -472,6 +472,37 @@ Colon commands:
 ```
 
 `:date` changes live display state but does not write `show_last_used_date` to configuration. Configuration changes must be made through the config file/editor.
+
+### Session fork workflow
+
+- `F` no longer opens search; `:find` and `Ctrl-W` retain their behavior.
+- A registered, recognized source session with an ID is required.
+- The first popup places the installed runner's native fork first, transfer
+  second, then session-written Markdown files with case-insensitive `plan` in
+  their filenames, then other session-mentioned Markdown files.
+- CLI-native forks are capability-probed. Slash-only native forks open the source
+  with an explicit manual `/fork` instruction and a cancellable confirmation.
+  No terminal keystrokes are injected. OMP falls back to this path when its
+  installed CLI lacks `--fork`; OpenCode chooses V1 root or V2 mini flags.
+- Transfer asks for another installed context-capable runner, then full versus
+  source-runner compression. Markdown asks only for the destination, defaulting
+  to the source when available, and copies the selected file's current text.
+- Full context preserves complete source JSON/JSONL or owning-runner export,
+  including assistant/tool records. Native role/event import is not implied.
+  Large context is retained in a file, never silently truncated into argv.
+- Compression feeds the source transcript to a fresh source-runner headless
+  invocation, not a resumed source. It captures final assistant text, rejects
+  errors/empty results, and starts the destination only after success. Model
+  credentials/usage apply. Tool-denial policies do not sandbox custom hooks.
+- Created-file priority uses structured write/create/patch evidence. References
+  are deduplicated and resolved against recorded source cwd; no unrelated
+  workspace files are enumerated. Unresolvable relative references are omitted.
+- Jobs/context are private, durable files under XDG_DATA_HOME/aisema/forks, so
+  child terminals can outlive Aisema. They are not automatically redacted.
+- Cancellation at any popup before launch leaves the session file and source
+  untouched and creates no job. Child entries remain temporary until edited.
+- Native child panes are excluded from argv-based claims on parent sessions:
+  fork/resume argv may retain the parent's ID even after the child gets a new ID.
 
 ## 11. Launch and active-session behavior
 

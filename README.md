@@ -153,6 +153,68 @@ Tmux focus uses pane/window identifiers. Those identifiers are separate from the
 
 Cursor activity detection first matches session IDs in argv, then checks processes owned by `cursor-agent` or `agent` for open `~/.cursor/chats/<project>/<session-id>/store.db` file descriptors (including `-wal` and `-shm` sidecars). The structural path identifies the exact session ID, not an arbitrary substring. Ownership metadata, including an empty result, is cached in `snapshot.runner_data['cursor-agent']` once per process snapshot.
 
+## Forking sessions
+
+Press `F` on a recognized session with an ID. Search remains available through
+`:find TEXT` and `Ctrl-W`.
+
+The first popup offers, in order:
+
+1. **Native fork**, when supported by the installed runner. Cursor and Copilot
+   open the source in a new terminal and explicitly ask you to enter `/fork`;
+   Aisema does not inject keystrokes. OMP uses this manual path when its installed
+   CLI does not expose `--fork`.
+2. **Transfer session to another runner**. Choose an installed destination, then
+   choose **Full session** or **Compress first using the source runner**.
+3. Session-written Markdown files whose filenames contain `plan`
+   (case-insensitive), followed by other Markdown files mentioned in the session.
+   Selecting a file opens the destination picker with the source runner selected
+   by default, if installed. The file's current contents become the handoff.
+
+Transfer reads complete stored/exported session data, including assistant and
+tool records, rather than just the description or user prompts. It creates a
+fresh destination conversation seeded with context, **not a native import of
+message roles**. OMP, Goose, and Copilot have file-ingestion interfaces; Codex,
+Cursor, and OpenCode receive an instruction to read the entire durable handoff
+file. Aisema does not truncate the file to fit a command-line argument.
+
+Compression runs a fresh non-interactive instance of the **source** runner with
+the complete transcript and a handoff-summary request. It never resumes the
+original session. This uses that runner's configured model/credentials and may
+incur model usage. Summaries are lossy; a failed or empty summary does not start
+the destination. Tool restrictions are applied where supported, but runner
+plugins/startup hooks are not an OS sandbox. Some runners persist the fresh
+summary session; Goose's no-session mode may create a hidden session.
+
+Popups support arrows, Page Up/Down, Home/End, Enter, and `q`/Escape to cancel.
+Cancelling before launch creates no child or handoff job. Fork children follow
+the normal temporary `N`/ID-adoption/description-save lifecycle. In tmux they open
+in detached windows; Enter focuses the tracked child rather than its source.
+
+Handoffs may contain sensitive, unredacted history. They are retained under
+`$XDG_DATA_HOME/aisema/forks/` (default `~/.local/share/aisema/forks/`) in private
+directories so the child can read them after Aisema exits. Relative Markdown
+paths use the source session's recorded working directory, never an inferred
+workspace scan. Missing/unreadable files produce an error when selected.
+
+### Native fork mechanisms researched
+
+Installed help selects the usable CLI mechanism; unsupported older versions are
+not assumed to accept current flags.
+
+| Runner | Native mechanism |
+|---|---|
+| Codex | [`codex fork ID`](https://developers.openai.com/codex/cli/reference#codex-fork) |
+| OMP | [`omp --fork ID`, or interactive `/fork`](https://github.com/can1357/oh-my-pi/blob/main/docs/session-operations-export-share-fork-resume.md) |
+| Cursor | [Interactive `/fork`](https://cursor.com/docs/cli/reference/slash-commands); no documented external fork-by-ID flag |
+| Copilot | [Interactive `/fork`](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference); no documented external fork-by-ID flag |
+| OpenCode | [V1 `--session ID --fork`](https://opencode.ai/v1/docs/cli/); [V2 `mini --session ID --fork`](https://github.com/anomalyco/opencode/blob/dev/packages/cli/src/commands/commands.ts) |
+| Goose | [`goose session --resume --fork --session-id ID`](https://github.com/aaif-goose/goose/blob/main/documentation/docs/guides/goose-cli-commands.md) |
+
+Goose JSON and OpenCode JSON exports are used for database-backed sessions.
+OpenCode exports settled conversation messages, not unfinished running events.
+Compressed Codex journals require the `zstd` executable.
+
 ## Keyboard controls
 
 | Key | Action |
@@ -160,7 +222,7 @@ Cursor activity detection first matches session IDs in argv, then checks process
 | `Up` / `Down` | Move selection. |
 | `Page Up` / `Page Down` | Move one screen. |
 | `Home` / `End` | Jump to the first or last row. |
-| `F` | Prompt for `:find`. |
+| `F` | Fork the selected session: native, full/compressed transfer, or a referenced Markdown file. |
 | `Ctrl-W` | Prompt for `:find`. |
 | `E` | Edit the selected description. |
 | `D` | Toggle the done marker. |

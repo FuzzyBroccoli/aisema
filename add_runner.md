@@ -190,6 +190,41 @@ Do not force an unrelated proprietary schema into the generic reader. Construct
 `DiscoveredSession` directly or use `make_session()` after validating your own
 records. The template docstring supplies one concrete illustrative JSON record.
 
+### Optional fork and handoff capabilities
+
+These are additive API-version-1 hooks; existing plugins remain loadable:
+
+- `session_content(session_id) -> SessionContent(text, cwd=None)` returns complete,
+  read-only source data. The default finds the exact discovered ID and reads its
+  JSON/JSONL file, preserving all records. Compressed journals use `zstd`.
+  Database-backed or path-less stores must override this with a complete export,
+  not a reconstruction from user prompts or descriptions. `cwd` is source
+  metadata, not the session manager's current directory.
+- `native_fork(session_id) -> NativeFork(argv, instruction="") | None` returns a
+  verified native fork command. `instruction="/fork"` explicitly denotes opening
+  the source for a manual interactive fork, not an automatic fork. Return `None`
+  when unavailable; version-probe flags rather than inventing them.
+- `context_command(context_file) -> tuple[str, ...] | None` starts a **fresh
+  interactive** session using the complete durable file, preserving terminal
+  stdin. Return argv, not shell interpolation. `None` excludes the plugin from
+  handoff destinations. The picker may call this with a nonexistent placeholder
+  path; that capability check must have no side effects.
+- `summary_command(output_file) -> SummaryCommand | None` starts a **fresh
+  non-interactive source-runner** summarizer. Aisema supplies the entire prompt
+  and transcript on stdin. Never resume/continue the original source session.
+  Return `None` if unsupported. This hook is invoked only for a real job, and may
+  create private job-local configuration files.
+
+`SummaryCommand(argv, output_format="text", output_file=None, cwd=None)` captures
+final assistant output separately from stderr/progress. `output_file`, if set,
+takes precedence over stdout. Supported stdout formats are final-only `text`,
+`opencode-json` (completed text parts grouped by final message ID and deduplicated
+by part ID), and `goose-json` (completed status, last assistant text). An empty or
+failed summary prevents destination launch. `cwd` can select a private managed
+configuration directory for the summarizer; the interactive destination still
+uses the source cwd. Apply verified read-only/tool restrictions where possible;
+do not claim they isolate arbitrary user hooks or MCP servers.
+
 ### Snapshot-based process customization
 
 `find_process(session_id, snapshot) -> ProcessMatch | None` defaults to

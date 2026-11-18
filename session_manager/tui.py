@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import curses
 from datetime import datetime
+from pathlib import Path
 import subprocess
 import textwrap
 import time
@@ -11,6 +12,9 @@ from .config import Config, load_config
 from .config_editor import ConfigEditor
 from .discovery import available_harnesses, discover_recent, refresh_last_used
 from .model import SessionEntry
+from .forking import job_command, prepare_job
+from .runner_api import SessionContent
+from .session_context import markdown_files
 from .runner_registry import get_registry
 from . import process, tmux
 from .storage import SessionDocument
@@ -346,6 +350,7 @@ class SessionApp:
         self.new_session_baselines: dict[int, set[str]] = {}
         self.new_session_description_edits: set[int] = set()
         self.new_session_panes: dict[int, tmux.Pane] = {}
+        self.native_fork_entries: set[int] = set()
         self.scroll_top = 0
         self.throwaway_visible: set[int] = set()
         self.help_visible = False
@@ -678,19 +683,23 @@ class SessionApp:
         ordered.extend(runner for runner in installed if runner not in ordered)
         return ordered
 
-    def _choose_harness(self, harnesses: list[str]) -> Optional[str]:
+    def _choose_option(
+        self, title: str, options: list[str], selected: int = 0
+    ) -> Optional[int]:
+        if not options:
+            return None
         height, width = self.stdscr.getmaxyx()
-        popup_height = min(len(harnesses) + 2, max(3, height - 2))
-        popup_width = min(max(max(map(len, harnesses)) + 8, 20), max(20, width - 2))
+        popup_height = min(len(options) + 2, max(3, height - 2))
+        popup_width = min(max(len(title) + 6, max(map(len, options)) + 4, 20), max(3, width - 2))
         top = max(0, (height - popup_height) // 2)
         left = max(0, (width - popup_width) // 2)
         try:
             popup = curses.newwin(popup_height, popup_width, top, left)
         except curses.error:
-            self._set_message("terminal is too small for the harness picker", True)
+            self._set_message("terminal is too small for the picker", True)
             return None
         popup.keypad(True)
-        selected = 0
+        selected = min(max(0, selected), len(options) - 1)
         first = 0
         try:
             while True:
@@ -701,11 +710,11 @@ class SessionApp:
                     first = selected - visible_count + 1
                 popup.erase()
                 popup.box()
-                _safe_addstr(popup, 0, 2, " New session ", max(1, popup_width - 4), curses.A_BOLD)
-                for offset, harness in enumerate(harnesses[first : first + visible_count]):
+                _safe_addstr(popup, 0, 2, f" {title} ", max(1, popup_width - 4), curses.A_BOLD)
+                for offset, option in enumerate(options[first : first + visible_count]):
                     index = first + offset
                     attr = curses.A_REVERSE if index == selected else 0
-                    _safe_addstr(popup, 1 + offset, 2, harness, max(1, popup_width - 4), attr)
+                    _safe_addstr(popup, 1 + offset, 2, option, max(1, popup_width - 4), attr)
                 popup.refresh()
                 key = popup.getch()
                 if key in (ord("q"), ord("Q"), 27):
@@ -713,15 +722,25 @@ class SessionApp:
                 if key == curses.KEY_UP:
                     selected = max(0, selected - 1)
                 elif key == curses.KEY_DOWN:
-                    selected = min(len(harnesses) - 1, selected + 1)
+                    selected = min(len(options) - 1, selected + 1)
+                elif key == curses.KEY_HOME:
+                    selected = 0
+                elif key == curses.KEY_END:
+                    selected = len(options) - 1
                 elif key == curses.KEY_PPAGE:
                     selected = max(0, selected - visible_count)
                 elif key == curses.KEY_NPAGE:
-                    selected = min(len(harnesses) - 1, selected + visible_count)
+                    selected = min(len(options) - 1, selected + visible_count)
                 elif key in (10, 13, curses.KEY_ENTER):
-                    return harnesses[selected]
+                    return selected
         finally:
             del popup
+            self.stdscr.touchwin()
+            self.stdscr.refresh()
+
+    def _choose_harness(self, harnesses: list[str]) -> Optional[str]:
+        selected = self._choose_option("New session", harnesses)
+        return harnesses[selected] if selected is not None else None
 
     def _choose_sort_mode(self) -> Optional[tuple[str, str]]:
         layer = "second"
@@ -785,8 +804,37 @@ class SessionApp:
         finally:
             del popup
 
+    def _fork_process_snapshot(self) -> Optional[process.ProcessSnapshot]:
+        native_entries = getattr(self, "native_fork_entries", set())
+        panes = [
+            pane for identity, pane in getattr(self, "new_session_panes", {}).items()
+            if identity in native_entries
+        ]
+        if not panes:
+            return None
+        # Native children can retain the parent's ID in argv after forking.
+        # Their tracked pane owns the child, not the parent's saved entry.
+        names = {
+            name for entry in self.document.entries if id(entry) in native_entries
+            for name in get_registry().get(entry.runner).command_names
+        }
+        snapshot = process.scan_processes()
+        candidates = {
+            match.pid for name in names for match in snapshot.by_runner.get(name, ())
+        }
+        excluded = {
+            pid for pid in candidates
+            if any(tmux._is_descendant(pid, pane.pane_pid) for pane in panes)
+        }
+        snapshot.processes = tuple(match for match in snapshot.processes if match.pid not in excluded)
+        snapshot.by_runner = {
+            name: tuple(match for match in matches if match.pid not in excluded)
+            for name, matches in snapshot.by_runner.items()
+        }
+        return snapshot
+
     def _refresh_active(self) -> None:
-        process.refresh_active(self.document.entries)
+        process.refresh_active(self.document.entries, self._fork_process_snapshot())
         tracked = getattr(self, "new_session_panes", {})
         if not tracked:
             return
@@ -799,6 +847,7 @@ class SessionApp:
                 entry.active = True
             else:
                 tracked.pop(id(entry), None)
+                getattr(self, "native_fork_entries", set()).discard(id(entry))
 
     def _remember_new_session(self, entry: SessionEntry) -> None:
         known = {
@@ -901,6 +950,107 @@ class SessionApp:
         self.rebuild(entry)
         self._set_message(f"starting new {runner} session")
         self._launch_selected()
+
+    def _fork(self) -> None:
+        entry = self._selected_entry()
+        if entry is None or not entry.parsed or not entry.session_id:
+            self._set_message("fork requires a recognized session with an ID", True)
+            return
+        source = get_registry().get(entry.runner)
+        if source is None:
+            self._set_message("fork requires a registered source runner", True)
+            return
+        try:
+            native = source.native_fork(entry.session_id) if source.is_available() else None
+            content = None
+            content_error = ""
+            try:
+                content = source.session_content(entry.session_id)
+            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+                content_error = str(exc)
+            files = markdown_files(content) if content is not None else ()
+            options = []
+            if native is not None:
+                label = "Native fork"
+                if native.instruction:
+                    label += f" (manual {native.instruction} in runner)"
+                options.append(label)
+            transfer_index = len(options)
+            options.append("Transfer session to another runner")
+            for item in files:
+                label = "Plan" if item.created and "plan" in item.path.name.casefold() else "Markdown"
+                options.append(f"{label}: {item.path.name} — {item.path.parent}")
+            choice = self._choose_option("Fork session", options)
+            if choice is None:
+                self._set_message("fork cancelled")
+                return
+            if native is not None and choice == 0:
+                if native.instruction:
+                    confirmed = self._choose_option(
+                        "Native fork needs a command",
+                        [f"Open source; enter {native.instruction} in the runner", "Cancel"],
+                    )
+                    if confirmed != 0:
+                        self._set_message("fork cancelled")
+                        return
+                job = prepare_job(source.name, entry.session_id, source.name, content, native=native)
+                self._start_fork(source.name, job_command(job), native=True)
+                if native.instruction:
+                    self._set_message(f"enter {native.instruction} in the opened runner to create the fork")
+                return
+            if content is None:
+                raise ValueError(f"cannot read source session: {content_error}")
+            from_markdown = choice > transfer_index
+            if from_markdown:
+                path = files[choice - transfer_index - 1].path
+                text = path.read_text(encoding="utf-8")
+                content = SessionContent(f"# Markdown handoff: {path}\n\n{text}", content.cwd)
+            harnesses = [
+                name for name in self._new_session_harnesses()
+                if from_markdown or name != source.name
+                if get_registry().get(name).context_command(Path("context.md")) is not None
+            ]
+            if not harnesses:
+                raise ValueError("no installed runner supports context handoffs")
+            default = harnesses.index(source.name) if from_markdown and source.name in harnesses else 0
+            destination = self._choose_option("Fork destination", harnesses, default)
+            if destination is None:
+                self._set_message("fork cancelled")
+                return
+            target = harnesses[destination]
+            compress = False
+            if not from_markdown:
+                mode = self._choose_option(
+                    "Session context", ["Full session", f"Compress first using {source.name}"]
+                )
+                if mode is None:
+                    self._set_message("fork cancelled")
+                    return
+                compress = mode == 1
+                if compress and not source.is_available():
+                    raise ValueError(f"source runner {source.name} is required for compression")
+            job = prepare_job(source.name, entry.session_id, target, content, compress=compress)
+            self._start_fork(target, job_command(job))
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            self._set_message(f"fork failed: {exc}", True)
+
+    def _start_fork(self, runner: str, command: str, *, native: bool = False) -> None:
+        target = get_registry().get(runner)
+        entry = SessionEntry(
+            raw="",
+            command=target.new_session_command(),
+            separator=" ",
+            description=f"New {runner} fork",
+            line_number=0,
+            source="temporary",
+        )
+        self._remember_new_session(entry)
+        self.document.add_temporary(entry)
+        if native:
+            self.native_fork_entries.add(id(entry))
+        self.rebuild(entry)
+        self._set_message(f"starting {runner} fork")
+        self._run_session_command(entry, command)
 
     def _draw_config(self, height: int, width: int) -> None:
         assert self.config_editor is not None
@@ -1074,7 +1224,7 @@ class SessionApp:
             "  Home/End      jump to first/last row",
             "",
             "Shortcuts (case-insensitive)",
-            "  F             find",
+            "  F             fork selected session",
             "  E             edit selected description",
             "  D             toggle done marker",
             "  S             choose sort mode",
@@ -1207,7 +1357,7 @@ class SessionApp:
 
         footer_attr = self._attr("error" if self.message_is_error else "prompt")
         footer = self.message or "ready"
-        shortcuts = "F:find  E:edit  D:done  S:sort  C:config  X/T:throwaway  M:more  R:refresh  H:help  N:new session  Q:quit"
+        shortcuts = "F:fork  E:edit  D:done  S:sort  C:config  X/T:throwaway  M:more  R:refresh  H:help  N:new session  Q:quit"
         _safe_addstr(self.stdscr, max(0, height - 2), 0, footer, max(1, width - 1), footer_attr)
         _safe_addstr(self.stdscr, max(0, height - 1), 0, shortcuts, max(1, width - 1), curses.A_DIM)
         self.stdscr.refresh()
@@ -1368,7 +1518,7 @@ class SessionApp:
             else:
                 self._set_message("session is in tmux but focus failed", True)
             return
-        match = process.find_process(entry)
+        match = process.find_process(entry, self._fork_process_snapshot())
         if match is not None:
             pane = tmux.pane_for_process(match)
             if pane is not None and tmux.focus(pane):
@@ -1380,8 +1530,11 @@ class SessionApp:
             entry.active = True
             return
 
+        self._run_session_command(entry, entry.command)
+
+    def _run_session_command(self, entry: SessionEntry, command: str) -> None:
         if tmux.inside():
-            pane = tmux.launch(entry.command, entry.description)
+            pane = tmux.launch(command, entry.description)
             if pane is not None:
                 if entry.temporary:
                     getattr(self, "new_session_panes", {})[id(entry)] = pane
@@ -1396,7 +1549,7 @@ class SessionApp:
         try:
             curses.def_prog_mode()
             curses.endwin()
-            subprocess.call(entry.command, shell=True, executable="/bin/sh")
+            subprocess.call(command, shell=True, executable="/bin/sh")
         finally:
             curses.reset_prog_mode()
             self.stdscr.clear()
@@ -1404,10 +1557,6 @@ class SessionApp:
         self._refresh_new_sessions()
         self._set_message("session exited")
 
-    def _prompt_command(self, initial: str) -> None:
-        command = _read_line(self.stdscr, "command> ", initial)
-        if command is not None:
-            self._run_command(command)
 
     def run(self) -> None:
         self.stdscr.keypad(True)
@@ -1453,7 +1602,7 @@ class SessionApp:
                 if command is not None:
                     self._run_command(command)
             elif key in (ord("f"), ord("F")):
-                self._prompt_command(":find")
+                self._fork()
             elif key in (ord("e"), ord("E")):
                 self._edit()
             elif key in (ord("d"), ord("D")):

@@ -4,8 +4,9 @@ import os
 from pathlib import Path
 import shutil
 from typing import TYPE_CHECKING
-from ..runner_api import DiscoveredSession, Runner
+from ..runner_api import DiscoveredSession, NativeFork, Runner, SessionContent, SummaryCommand
 from ..runner_helpers import generic_json_session
+from ..runner_commands import context_instruction
 
 RUNNER_API_VERSION = 1
 
@@ -36,6 +37,36 @@ class CursorAgentRunner(Runner):
 
     def resume_command(self, session_id: str) -> str:
         return f"{self.new_session_command()} --resume={session_id}"
+
+    def session_content(self, session_id: str) -> SessionContent:
+        from ..session_context import content_from_text
+
+        content = super().session_content(session_id)
+        if content.cwd is not None:
+            return content
+        root = Path.home() / ".cursor" / "chats"
+        for project in sorted(root.glob("*")):
+            metadata = project / session_id / "meta.json"
+            try:
+                cwd = content_from_text(metadata.read_text(encoding="utf-8")).cwd
+            except (OSError, UnicodeError, ValueError):
+                continue
+            if cwd is not None:
+                return SessionContent(content.text, cwd)
+        return content
+
+    def native_fork(self, session_id: str) -> NativeFork:
+        return NativeFork(
+            (self.new_session_command(), "--resume", session_id), instruction="/fork",
+        )
+
+    def context_command(self, context_file: Path) -> tuple[str, ...]:
+        return (self.new_session_command(), context_instruction(context_file))
+
+    def summary_command(self, output_file: Path) -> SummaryCommand:
+        return SummaryCommand(
+            (self.new_session_command(), "--print", "--mode=ask", "--output-format", "text")
+        )
 
     def _fd_session_processes(self, snapshot: ProcessSnapshot) -> dict[str, ProcessMatch]:
         root = Path.home() / ".cursor" / "chats"
