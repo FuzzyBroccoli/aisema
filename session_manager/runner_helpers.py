@@ -77,31 +77,30 @@ def make_session(
     )
 
 
-def json_records(path: Path) -> list[dict[str, Any]] | None:
+def json_records(text: str) -> tuple[list[dict[str, Any]] | None, object | None]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(text)
     except json.JSONDecodeError:
         try:
-            return [
+            records = [
                 record
-                for line in path.read_text(encoding="utf-8").splitlines()
+                for line in text.splitlines()
                 if line.strip()
                 for record in [json.loads(line)]
                 if isinstance(record, dict)
             ]
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            return None
-    except (OSError, UnicodeError):
-        return None
+        except json.JSONDecodeError:
+            return None, None
+        return records, None
     if isinstance(value, list):
-        return [item for item in value if isinstance(item, dict)]
+        return [item for item in value if isinstance(item, dict)], value
     if not isinstance(value, dict):
-        return None
+        return None, value
     for key in ("messages", "history", "turns", "records"):
         records = value.get(key)
         if isinstance(records, list):
-            return [item for item in records if isinstance(item, dict)]
-    return [value]
+            return [item for item in records if isinstance(item, dict)], value
+    return [value], value
 
 
 def generic_json_session(
@@ -111,7 +110,11 @@ def generic_json_session(
     *,
     clean_prompt: Callable[[str], str] | None = None,
 ) -> DiscoveredSession | None:
-    records = json_records(path)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    records, top_level = json_records(text)
     if records is None:
         return None
     prompt = ""
@@ -123,10 +126,7 @@ def generic_json_session(
         updated = path.stat().st_mtime_ns
     except OSError:
         return None
-    try:
-        top_level = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        top_level = {}
+
     if isinstance(top_level, dict):
         record_id = record_id or str(top_level.get("sessionId") or top_level.get("id") or "")
         title = str(top_level.get("title") or top_level.get("name") or top_level.get("description") or "")
