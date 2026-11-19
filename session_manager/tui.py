@@ -417,12 +417,7 @@ class SessionApp:
         return attr
 
     def rebuild(self, selected_entry: Optional[SessionEntry] = None) -> None:
-        entries = _sort_entries(
-            self.document.entries,
-            self.sort_mode,
-            self.sort_descending,
-            getattr(self, "first_sort_mode", "status"),
-        )
+        entries = self.document.entries
         if not self.config.show_done:
             entries = [entry for entry in entries if not entry.done]
         if not self.config.show_throwaway:
@@ -440,6 +435,12 @@ class SessionApp:
                 or query in entry.command.casefold()
                 or query in entry.session_id.casefold()
             ]
+        entries = _sort_entries(
+            entries,
+            self.sort_mode,
+            self.sort_descending,
+            getattr(self, "first_sort_mode", "status"),
+        )
         self.visible = entries
         if selected_entry is not None and selected_entry in entries:
             self.selected = entries.index(selected_entry)
@@ -1259,10 +1260,12 @@ class SessionApp:
         entry: SessionEntry,
         width: int,
         selected: bool,
+        text: Optional[str] = None,
     ) -> None:
-        text = entry.short_command if self.config.short_commands else entry.command
         if width <= 0:
             return
+        if text is None:
+            text = entry.short_command if self.config.short_commands else entry.command
         runner_end = len(text.split(" ", 1)[0])
         session_id = entry.short_session_id if self.config.short_commands else entry.session_id
         hash_start = text.find(session_id) if session_id else -1
@@ -1317,12 +1320,14 @@ class SessionApp:
         _safe_addstr(self.stdscr, 0, 0, title, max(1, width - 1), curses.A_BOLD)
 
         list_height = max(1, height - 3)
+        short_commands = self.config.short_commands
         command_texts = [
-            entry.short_command if self.config.short_commands else entry.command
+            entry.short_command if short_commands else entry.command
             for entry in self.visible
-        ] if not self.config.hide_commands else [""]
+        ] if not self.config.hide_commands else ["" for _ in self.visible]
+        date_format = self.config.get("date_format")
         date_texts = [
-            entry.last_used_text(self.config.get("date_format"))
+            entry.last_used_text(date_format)
             for entry in self.visible
         ] if self.show_last_used_date else []
         date_width = max([len(text) for text in date_texts] + [0])
@@ -1338,13 +1343,13 @@ class SessionApp:
             marker = _status_marker(entry)
             marker_attr = self._attr("active", selected)
             _safe_addstr(self.stdscr, y, 0, marker, 4, marker_attr)
-            self._draw_command(y, 4, entry, command_width, selected)
+            self._draw_command(y, 4, entry, command_width, selected, command_texts[index])
             if date_width:
                 _safe_addstr(
                     self.stdscr,
                     y,
                     date_x,
-                    entry.last_used_text(self.config.get("date_format")),
+                    date_texts[index],
                     date_width,
                     self._attr("description", selected),
                 )

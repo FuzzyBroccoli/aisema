@@ -96,16 +96,19 @@ class OpencodeRunner(Runner):
                     "SELECT id, title, time_updated FROM session WHERE parent_id IS NULL"
                 ).fetchall()
                 result: list[DiscoveredSession] = []
+                fallback_ns: int | None = None
                 for session_id, title, updated in rows:
                     if not isinstance(session_id, str):
                         continue
+                    if fallback_ns is None:
+                        fallback_ns = path.stat().st_mtime_ns
                     result.append(
                         make_session(
                             self,
                             path,
                             session_id,
                             str(title or ""),
-                            timestamp_ns(updated, path.stat().st_mtime_ns),
+                            timestamp_ns(updated, fallback_ns),
                         )
                     )
                 database.close()
