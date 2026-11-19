@@ -107,8 +107,8 @@ def load_session_content(discovered: Iterable[DiscoveredSession], session_id: st
         raise ValueError(f"Session {path} is not UTF-8 text; export complete content with {session.runner}") from error
     if "\x00" in text:
         raise ValueError(f"Session {path} contains binary data; export complete content with {session.runner}")
-    _records(text, strict=True)
-    return content_from_text(text)
+    records = _records(text, strict=True)
+    return SessionContent(text, _source_cwd(records))
 
 
 def _reference(value: str, *, link: bool = False) -> str | None:
