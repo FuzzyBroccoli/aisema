@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+start_dir=$(pwd -P) || exit 1
+export AISEMA_START_DIR=$start_dir
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$script_dir" || exit 1
 exec python3 -m session_manager "$@"

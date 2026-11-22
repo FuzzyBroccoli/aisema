@@ -27,6 +27,7 @@ from session_manager.tui import (
     _inspection_query_index,
     _read_line,
     _sort_entries,
+    _start_directory,
     _status_marker,
     _word_left,
     _word_right,
@@ -351,6 +352,7 @@ class SessionManagerTests(unittest.TestCase):
             app.stdscr = Window()
             app.document = document
             app.config = Config(DEFAULTS, path)
+            app.startdir = Path(directory).resolve()
             app.sort_mode = "status"
             app.sort_descending = False
             app.query = ""
@@ -367,8 +369,9 @@ class SessionManagerTests(unittest.TestCase):
             ):
                 self.assertEqual(app._new_session_harnesses(), ["goose", "omp", "copilot"])
                 with patch.object(app, "_choose_harness", return_value="goose"):
-                    with patch.object(app, "_launch_selected"):
-                        app._new_session()
+                    with patch.object(app, "_choose_workdir", return_value=app.startdir):
+                        with patch.object(app, "_launch_selected"):
+                            app._new_session()
 
             entry = document.entries[-1]
             self.assertTrue(entry.temporary)
@@ -392,6 +395,7 @@ class SessionManagerTests(unittest.TestCase):
             app.stdscr = Window()
             app.document = document
             app.config = Config(DEFAULTS, path)
+            app.startdir = Path(directory).resolve()
             app.sort_mode = "status"
             app.first_sort_mode = "date"
             app.sort_descending = False
@@ -412,8 +416,9 @@ class SessionManagerTests(unittest.TestCase):
             ), patch("session_manager.runners.cursor_agent.shutil.which", return_value="/fixture/cursor-agent"):
                 self.assertEqual(app._new_session_harnesses(), ["cursor-agent"])
                 with patch.object(app, "_choose_harness", return_value="cursor-agent"):
-                    with patch.object(app, "_launch_selected"):
-                        app._new_session()
+                    with patch.object(app, "_choose_workdir", return_value=app.startdir):
+                        with patch.object(app, "_launch_selected"):
+                            app._new_session()
 
             self.assertEqual(document.entries[0].runner, "cursor-agent")
             self.assertEqual(document.entries[0].session_id, "stored")
@@ -425,6 +430,163 @@ class SessionManagerTests(unittest.TestCase):
                 "agent --resume stored Stored cursor session\n",
             )
 
+
+
+
+    def test_start_directory_prefers_launcher_start_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            expected = Path(directory).resolve()
+            with patch.dict(
+                os.environ,
+                {"AISEMA_START_DIR": str(expected), "PWD": "/repository"},
+            ), patch("session_manager.tui.Path.cwd", return_value=Path("/repository")):
+                self.assertEqual(_start_directory(), expected)
+
+    def test_workdir_choices_keep_fixed_order_and_hide_unavailable_children(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "zeta").mkdir()
+            (root / "alpha").mkdir()
+            (root / ".hidden").mkdir()
+            (root / "not-a-directory").write_text("", encoding="utf-8")
+            app = object.__new__(SessionApp)
+            app.startdir = root
+
+            choices = app._workdir_choices()
+
+        paths = [path for _, path in choices]
+        self.assertEqual(paths[:3], [
+            root,
+            root / "internet_search",
+            root / "temp_dir",
+        ])
+        self.assertEqual(paths[3:], [root / "alpha", root / "zeta"])
+        self.assertNotIn(root / ".hidden", paths)
+        self.assertNotIn(root / "not-a-directory", paths)
+
+    def test_workdir_choices_add_checkout_once_and_omit_external_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            checkout = root / "nested" / "checkout"
+            (checkout / "session_manager").mkdir(parents=True)
+            (checkout / ".git").mkdir()
+            fake_file = checkout / "session_manager" / "tui.py"
+            with patch("session_manager.tui.__file__", str(fake_file)):
+                app = object.__new__(SessionApp)
+                app.startdir = root
+                choices = app._workdir_choices()
+                self.assertIn(("aisema program dir", checkout), choices)
+
+                app.startdir = checkout
+                duplicate_choices = app._workdir_choices()
+                self.assertEqual(
+                    [path for _, path in duplicate_choices].count(checkout),
+                    1,
+                )
+
+                app.startdir = root / "outside"
+                app.startdir.mkdir()
+                external_choices = app._workdir_choices()
+
+        self.assertNotIn(checkout, [path for _, path in external_choices])
+
+    def test_fixed_workdirs_are_created_when_prepared(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            app = object.__new__(SessionApp)
+            app.startdir = root
+            app.message = ""
+            app.message_is_error = False
+
+            self.assertTrue(app._prepare_workdir(root / "internet_search"))
+            self.assertTrue(app._prepare_workdir(root / "temp_dir"))
+            self.assertTrue((root / "internet_search").is_dir())
+            self.assertTrue((root / "temp_dir").is_dir())
+
+    def test_new_session_picks_workdir_after_runner_and_cancellation_has_no_effect(self) -> None:
+        class Window:
+            def getmaxyx(self) -> tuple[int, int]:
+                return (24, 80)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            document = load_document(root / "sessions.txt")
+            app = object.__new__(SessionApp)
+            app.stdscr = Window()
+            app.document = document
+            app.config = Config(DEFAULTS, root / "config")
+            app.startdir = root
+            app.visible = []
+            app.selected = 0
+            app.scroll_top = 0
+            app.first_sort_mode = "status"
+            app.sort_mode = "date"
+            app.sort_descending = False
+            app.query = ""
+            app.throwaway_visible = set()
+            app.message = ""
+            app.message_is_error = False
+            order: list[str] = []
+
+            with patch("session_manager.tui.available_harnesses", return_value=("omp",)):
+                with patch.object(
+                    app, "_choose_harness",
+                    side_effect=lambda harnesses: order.append("runner") or "omp",
+                ), patch.object(
+                    app, "_choose_workdir",
+                    side_effect=lambda: order.append("workdir") or root,
+                ), patch.object(
+                    app, "_launch_selected",
+                    side_effect=lambda: order.append("launch"),
+                ):
+                    app._new_session()
+
+            self.assertEqual(order, ["runner", "workdir", "launch"])
+            self.assertEqual(len(document.entries), 1)
+            self.assertEqual(app.new_session_workdirs[id(document.entries[0])], root)
+
+            document.ephemeral.clear()
+            order.clear()
+            with patch("session_manager.tui.available_harnesses", return_value=("omp",)):
+                with patch.object(app, "_choose_harness", return_value="omp"), patch.object(
+                    app, "_choose_workdir", return_value=None
+                ), patch.object(app, "_remember_new_session") as remember, patch.object(
+                    document, "add_temporary"
+                ) as add_temporary, patch.object(app, "_launch_selected") as launch:
+                    app._new_session()
+
+            self.assertEqual(order, [])
+            remember.assert_not_called()
+            add_temporary.assert_not_called()
+            launch.assert_not_called()
+            self.assertEqual(document.entries, [])
+
+    def test_non_tmux_launch_passes_selected_workdir_as_cwd(self) -> None:
+        entry = parse_line("omp New session", 0)
+        assert entry is not None
+        entry.source = "temporary"
+        with tempfile.TemporaryDirectory() as directory:
+            cwd = Path(directory).resolve()
+            app = object.__new__(SessionApp)
+            app.startdir = cwd
+            app.stdscr = SimpleNamespace(clear=lambda: None, refresh=lambda: None)
+            app.message = ""
+            app.message_is_error = False
+            with patch("session_manager.tui.tmux.inside", return_value=False), patch(
+                "session_manager.tui.curses.def_prog_mode"
+            ), patch("session_manager.tui.curses.endwin"), patch(
+                "session_manager.tui.curses.reset_prog_mode"
+            ), patch.object(app, "_draw"), patch.object(
+                app, "_refresh_new_sessions"
+            ), patch("session_manager.tui.subprocess.call") as launch:
+                app._run_session_command(entry, "omp --new", cwd)
+
+        launch.assert_called_once_with(
+            "omp --new",
+            shell=True,
+            executable="/bin/sh",
+            cwd=str(cwd),
+        )
 
     def test_new_session_id_stays_temporary_until_description_edit(self) -> None:
         discovered = parse_line("codex resume generated New session", 0)
@@ -591,6 +753,19 @@ class SessionManagerTests(unittest.TestCase):
                 ],
             )
 
+
+    def test_tmux_launch_adds_selected_workdir_before_exact_command(self) -> None:
+        cwd = Path("/tmp/selected-workdir")
+        with patch("session_manager.tmux.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "%3\t123\t@4\tmain\n"
+            tmux.launch("omp --resume abc --flag", "A description", cwd)
+
+        self.assertEqual(
+            run.call_args.args[0][-5:-1],
+            ["-n", "A", "-c", str(cwd)],
+        )
+        self.assertEqual(run.call_args.args[0][-1], "omp --resume abc --flag")
     def test_terminal_session_metadata_marks_process_active(self) -> None:
         session_id = "abc-123"
         entry = parse_line(f"omp --resume {session_id} Active", 1)

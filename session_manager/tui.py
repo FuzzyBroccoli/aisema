@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import curses
 from datetime import datetime
+import os
 from pathlib import Path
 import subprocess
 import textwrap
@@ -218,6 +219,18 @@ def _sort_entries(
             group.sort(key=key, reverse=descending)
     return [entry for group in groups for entry in group]
 
+def _start_directory() -> Path:
+    for value in (os.environ.get("AISEMA_START_DIR"), os.environ.get("PWD")):
+        if not value:
+            continue
+        candidate = Path(value).expanduser()
+        try:
+            if candidate.is_dir():
+                return candidate.resolve()
+        except OSError:
+            continue
+    return Path.cwd().resolve()
+
 
 
 
@@ -338,6 +351,7 @@ def _read_line(
 
 class SessionApp:
     def __init__(self, stdscr: curses.window, document: SessionDocument, config: Config) -> None:
+        self.startdir = _start_directory()
         self.stdscr = stdscr
         self.document = document
         self.config = config
@@ -350,6 +364,7 @@ class SessionApp:
         self.new_session_baselines: dict[int, set[str]] = {}
         self.new_session_description_edits: set[int] = set()
         self.new_session_panes: dict[int, tmux.Pane] = {}
+        self.new_session_workdirs: dict[int, Path] = {}
         self.native_fork_entries: set[int] = set()
         self.scroll_top = 0
         self.throwaway_visible: set[int] = set()
@@ -743,6 +758,73 @@ class SessionApp:
         selected = self._choose_option("New session", harnesses)
         return harnesses[selected] if selected is not None else None
 
+    def _workdir_choices(self) -> list[tuple[str, Path]]:
+        startdir = self.startdir.resolve()
+        choices: list[tuple[str, Path]] = []
+        seen: set[Path] = set()
+
+        def add(label: str, path: Path, *, require_directory: bool = True) -> None:
+            try:
+                resolved = path.resolve()
+                if require_directory and path.exists() and not resolved.is_dir():
+                    return
+                if resolved in seen:
+                    return
+            except OSError:
+                return
+            seen.add(resolved)
+            choices.append((label, resolved))
+
+        add("startdir", startdir)
+        add("internet_search", startdir / "internet_search", require_directory=False)
+        add("temp_dir", startdir / "temp_dir", require_directory=False)
+        try:
+            children = sorted(startdir.iterdir(), key=lambda path: path.name)
+        except OSError:
+            children = []
+        for child in children:
+            if child.name.startswith("."):
+                continue
+            try:
+                if child.is_dir():
+                    add(child.name, child)
+            except OSError:
+                continue
+
+        program_dir = Path(__file__).resolve().parent.parent.resolve()
+        try:
+            is_checkout = (
+                program_dir.is_dir()
+                and program_dir.is_relative_to(startdir)
+                and (program_dir / ".git").exists()
+            )
+        except OSError:
+            is_checkout = False
+        if is_checkout:
+            add("aisema program dir", program_dir)
+        return choices
+
+    def _choose_workdir(self) -> Optional[Path]:
+        choices = self._workdir_choices()
+        options = [f"{label}: {path}" for label, path in choices]
+        selected = self._choose_option("New session workdir", options)
+        return choices[selected][1] if selected is not None else None
+
+    def _prepare_workdir(self, cwd: Path) -> bool:
+        try:
+            fixed = {
+                (self.startdir / "internet_search").resolve(),
+                (self.startdir / "temp_dir").resolve(),
+            }
+            if cwd in fixed:
+                cwd.mkdir(parents=True, exist_ok=True)
+            if not cwd.is_dir() or not os.access(cwd, os.X_OK):
+                raise PermissionError(f"cannot access {cwd}")
+        except OSError as exc:
+            self._set_message(f"workdir unavailable: {exc}", True)
+            return False
+        return True
+
     def _choose_sort_mode(self) -> Optional[tuple[str, str]]:
         layer = "second"
         options = list(SECOND_SORT_MODES)
@@ -849,6 +931,7 @@ class SessionApp:
             else:
                 tracked.pop(id(entry), None)
                 getattr(self, "native_fork_entries", set()).discard(id(entry))
+                getattr(self, "new_session_workdirs", {}).pop(id(entry), None)
 
     def _remember_new_session(self, entry: SessionEntry) -> None:
         known = {
@@ -893,6 +976,7 @@ class SessionApp:
             if id(entry) in description_edits and self._save(entry):
                 description_edits.discard(id(entry))
                 baselines.pop(id(entry), None)
+                getattr(self, "new_session_workdirs", {}).pop(id(entry), None)
                 self._set_message("description saved")
 
     def _refresh_sessions(self) -> None:
@@ -936,6 +1020,12 @@ class SessionApp:
         if runner is None:
             self._set_message("new session cancelled")
             return
+        workdir = self._choose_workdir()
+        if workdir is None:
+            self._set_message("new session cancelled")
+            return
+        if not self._prepare_workdir(workdir):
+            return
         selected_runner = get_registry().get(runner)
         command = selected_runner.new_session_command()
         entry = SessionEntry(
@@ -948,6 +1038,8 @@ class SessionApp:
         )
         self._remember_new_session(entry)
         self.document.add_temporary(entry)
+        self.new_session_workdirs = getattr(self, "new_session_workdirs", {})
+        self.new_session_workdirs[id(entry)] = workdir
         self.rebuild(entry)
         self._set_message(f"starting new {runner} session")
         self._launch_selected()
@@ -1404,6 +1496,7 @@ class SessionApp:
         elif self._save(entry):
             getattr(self, "new_session_baselines", {}).pop(id(entry), None)
             getattr(self, "new_session_description_edits", set()).discard(id(entry))
+            getattr(self, "new_session_workdirs", {}).pop(id(entry), None)
             self._set_message("description saved")
 
     def _run_command(self, command: str) -> None:
@@ -1535,11 +1628,16 @@ class SessionApp:
             entry.active = True
             return
 
-        self._run_session_command(entry, entry.command)
+        cwd = getattr(self, "new_session_workdirs", {}).get(id(entry)) if entry.temporary else None
+        self._run_session_command(entry, entry.command, cwd)
 
-    def _run_session_command(self, entry: SessionEntry, command: str) -> None:
+    def _run_session_command(
+        self, entry: SessionEntry, command: str, cwd: Path | None = None
+    ) -> None:
+        if cwd is not None and not self._prepare_workdir(cwd):
+            return
         if tmux.inside():
-            pane = tmux.launch(command, entry.description)
+            pane = tmux.launch(command, entry.description, cwd)
             if pane is not None:
                 if entry.temporary:
                     getattr(self, "new_session_panes", {})[id(entry)] = pane
@@ -1554,7 +1652,10 @@ class SessionApp:
         try:
             curses.def_prog_mode()
             curses.endwin()
-            subprocess.call(command, shell=True, executable="/bin/sh")
+            launch_kwargs = {"shell": True, "executable": "/bin/sh"}
+            if cwd is not None:
+                launch_kwargs["cwd"] = str(cwd)
+            subprocess.call(command, **launch_kwargs)
         finally:
             curses.reset_prog_mode()
             self.stdscr.clear()

@@ -310,8 +310,8 @@ class RunnerPluginTests(unittest.TestCase):
                 (records / "h-002.json").unlink(missing_ok=True)
                 app = self.app()
                 with patch.object(app, "_choose_harness", return_value="harri"), patch.object(
-                    app, "_launch_selected"
-                ):
+                    app, "_choose_workdir", return_value=app.startdir
+                ), patch.object(app, "_launch_selected"):
                     app._new_session()
                 entry = app.document.entries[0]
                 if "Done." in suffix:
@@ -334,8 +334,8 @@ class RunnerPluginTests(unittest.TestCase):
     def test_tracked_new_session_activity_follows_tmux_pane_lifetime(self):
         app = self.app()
         with patch.object(app, "_choose_harness", return_value="harri"), patch.object(
-            app, "_launch_selected"
-        ):
+            app, "_choose_workdir", return_value=app.startdir
+        ), patch.object(app, "_launch_selected"):
             app._new_session()
         entry = app.document.entries[0]
         pane = SimpleNamespace(pane_id="%42")
@@ -365,8 +365,8 @@ class RunnerPluginTests(unittest.TestCase):
         app.stdscr = DrawingScreen()
         app.color_pairs = {"error": 1, "selected": 2, "description": 3}
         with patch.object(app, "_choose_harness", return_value="harri"), patch.object(
-            app, "_launch_selected"
-        ):
+            app, "_choose_workdir", return_value=app.startdir
+        ), patch.object(app, "_launch_selected"):
             app._new_session()
         entry = app.document.entries[0]
         with patch("session_manager.tui._read_line", return_value="My pending task"), patch(
@@ -399,13 +399,16 @@ class RunnerPluginTests(unittest.TestCase):
         original = self.fixture.sessions.read_bytes()
         app = self.app()
         with patch.object(app, "_choose_harness", return_value="harri"), patch.object(
-            app, "_draw"
-        ), patch("session_manager.tui.tmux.inside", return_value=False), patch(
-            "session_manager.process.iter_processes", return_value=()
-        ), patch("session_manager.tui.curses.def_prog_mode"), patch(
-            "session_manager.tui.curses.endwin"
-        ), patch("session_manager.tui.curses.reset_prog_mode"), enter_on_stdin():
+            app, "_choose_workdir", return_value=app.startdir
+        ) as choose_workdir, patch.object(app, "_draw"), patch(
+            "session_manager.tui.tmux.inside", return_value=False
+        ), patch("session_manager.process.iter_processes", return_value=()), patch(
+            "session_manager.tui.curses.def_prog_mode"
+        ), patch("session_manager.tui.curses.endwin"), patch(
+            "session_manager.tui.curses.reset_prog_mode"
+        ), enter_on_stdin():
             app._new_session()
+        choose_workdir.assert_called_once_with()
         self.assertEqual(self.fixture.invocations(), [["start"]])
         entry = app.document.entries[0]
         self.assertEqual((entry.runner, entry.session_id, entry.command),

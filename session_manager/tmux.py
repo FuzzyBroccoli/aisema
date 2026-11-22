@@ -100,20 +100,23 @@ def _window_name(description: str) -> str:
     return name or "session"
 
 
-def launch(command: str, description: str) -> Optional[Pane]:
+def launch(command: str, description: str, cwd: Path | None = None) -> Optional[Pane]:
     name = _window_name(description)
+    arguments = [
+        "tmux",
+        "new-window",
+        "-d",
+        "-P",
+        "-F",
+        "#{pane_id}\t#{pane_pid}\t#{window_id}\t#{session_id}",
+        "-n",
+        name,
+    ]
+    if cwd is not None:
+        arguments.extend(["-c", str(cwd)])
+    arguments.append(command)
     result = subprocess.run(
-        [
-            "tmux",
-            "new-window",
-            "-d",
-            "-P",
-            "-F",
-            "#{pane_id}\t#{pane_pid}\t#{window_id}\t#{session_id}",
-            "-n",
-            name,
-            command,
-        ],
+        arguments,
         text=True,
         capture_output=True,
         check=False,
