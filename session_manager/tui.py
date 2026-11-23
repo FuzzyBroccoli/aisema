@@ -1256,7 +1256,7 @@ class SessionApp:
 
         footer_attr = self._attr("error" if self.message_is_error else "prompt")
         footer = self.message or "config mode"
-        shortcuts = "CONFIG: ↑/↓ move  Space toggle/pick  ;/# comment  Enter pick/edit  q exit"
+        shortcuts = "CONFIG: ↑/↓ move  Space toggle/pick  ;/# comment  Enter pick/edit  c/q exit"
         _safe_addstr(self.stdscr, max(0, height - 2), 0, footer, max(1, width - 1), footer_attr)
         _safe_addstr(self.stdscr, max(0, height - 1), 0, shortcuts, max(1, width - 1), curses.A_DIM)
 
@@ -1277,7 +1277,7 @@ class SessionApp:
     def _handle_config_key(self, key: int) -> None:
         assert self.config_editor is not None
         count = len(self.config_editor.lines)
-        if key in (ord("q"), ord("Q"), 27):
+        if key in (ord("q"), ord("Q"), ord("c"), ord("C"), 27):
             self.config_editor = None
             self._set_message("config mode off")
         elif key == curses.KEY_UP:

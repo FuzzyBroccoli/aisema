@@ -987,6 +987,22 @@ class SessionManagerTests(unittest.TestCase):
             self.assertNotIn(id(entry), app.throwaway_visible)
             self.assertEqual(app.visible, [entry])
 
+    def test_config_mode_c_exits_like_q(self) -> None:
+        for key in (ord("c"), ord("C")):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                config_path = Path(directory) / "config"
+                config_path.write_text("# config\n", encoding="utf-8")
+                app = object.__new__(SessionApp)
+                app.config_editor = ConfigEditor(config_path)
+                app.message = ""
+                app.message_is_error = False
+
+                app._handle_config_key(key)
+
+                self.assertIsNone(app.config_editor)
+                self.assertEqual(app.message, "config mode off")
+                self.assertFalse(app.message_is_error)
+
     def test_config_creates_and_appends_commented_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config"
