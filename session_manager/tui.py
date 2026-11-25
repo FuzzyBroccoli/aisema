@@ -1032,7 +1032,7 @@ class SessionApp:
             raw=f"{command} New {runner} session",
             command=command,
             separator=" ",
-            description=f"New {runner} session",
+            description=f"{workdir.name or workdir}: New {runner} session",
             line_number=0,
             source="temporary",
         )

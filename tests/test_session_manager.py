@@ -376,7 +376,7 @@ class SessionManagerTests(unittest.TestCase):
             entry = document.entries[-1]
             self.assertTrue(entry.temporary)
             self.assertEqual(entry.command, "goose")
-            self.assertEqual(entry.description, "New goose session")
+            self.assertEqual(entry.description, f"{app.startdir.name}: New goose session")
             self.assertEqual(path.read_text(encoding="utf-8"), "goose session resume --name old Goose session\nomp --resume newer OMP session\n")
 
     def test_new_session_uses_cursor_identity_and_preserves_agent_commands(self) -> None:
@@ -534,7 +534,7 @@ class SessionManagerTests(unittest.TestCase):
                     side_effect=lambda harnesses: order.append("runner") or "omp",
                 ), patch.object(
                     app, "_choose_workdir",
-                    side_effect=lambda: order.append("workdir") or root,
+                    side_effect=lambda: order.append("workdir") or root / "internet_search",
                 ), patch.object(
                     app, "_launch_selected",
                     side_effect=lambda: order.append("launch"),
@@ -543,7 +543,11 @@ class SessionManagerTests(unittest.TestCase):
 
             self.assertEqual(order, ["runner", "workdir", "launch"])
             self.assertEqual(len(document.entries), 1)
-            self.assertEqual(app.new_session_workdirs[id(document.entries[0])], root)
+            self.assertEqual(app.new_session_workdirs[id(document.entries[0])], root / "internet_search")
+            self.assertEqual(
+                document.entries[0].description,
+                "internet_search: New omp session",
+            )
 
             document.ephemeral.clear()
             order.clear()
