@@ -1,18 +1,19 @@
-# Repository Commit Policy
+# Commit conventions
 
-- This project is hosted on GitHub.
-- Make exactly one commit for each new feature or fix.
-- Split multiple unrelated changes into separate commits to make human
-  review easier and merge conflict resolution easier.
-- Keep commit messages brief, no more than a few lines, and keep every
-  line no longer than 71 characters.
-- Make the subject line contain the key information.
-- Keep the subject line under 60 characters and describe what changed;
-  include how it changes the behavior when space permits.
-
+- Make exactly one commit per new feature or fix.
+- Split unrelated changes into separate commits, even when they are done
+  from the same prompt.
+- The subject line carries the key information and describes the change
+  in fewer than 60 characters; include how it changes behavior when
+  space permits.
+- Keep commit messages brief: 5–20 lines, with lines no longer than
+  71 characters.
+- Every commit message body MUST include an **Implementation and
+  verification summary**: concise bullets describing the implemented
+  behavior and verification performed. State important verification
+  limitations when applicable.
+- Commit message bodies MUST use actual line breaks. NEVER pass literal
+  `\n` text inside a quoted `-m` argument; use separate `-m` arguments or
+  `git commit -F-` with a quoted heredoc.
 - After each commit, test the program and confirm it remains executable
   and usable.
-
-This policy is required because GitHub displays the latest commit
-subject for each file. Other commit-message details require opening
-the history.
