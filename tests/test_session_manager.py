@@ -432,6 +432,209 @@ class SessionManagerTests(unittest.TestCase):
 
 
 
+    def test_new_session_shortcuts_are_unique_and_follow_suggestions_then_executable(self) -> None:
+        app = object.__new__(SessionApp)
+        runners = {
+            "omp": SimpleNamespace(
+                new_session_key="o", new_session_command=lambda: "omp", name="omp",
+            ),
+            "cursor-agent": SimpleNamespace(
+                new_session_key="c", new_session_command=lambda: "cursor-agent", name="cursor-agent",
+            ),
+            "codex": SimpleNamespace(
+                new_session_key="o", new_session_command=lambda: "codex", name="codex",
+            ),
+        }
+        registry = SimpleNamespace(get=runners.get)
+        with patch("session_manager.tui.get_registry", return_value=registry), patch.object(
+            app, "_choose_option", return_value=2
+        ) as choose:
+            self.assertEqual(app._choose_harness(["omp", "cursor-agent", "codex"]), "codex")
+
+        self.assertEqual(
+            choose.call_args.args[1],
+            ["[o] omp", "[c] cursor-agent", "[d] codex"],
+        )
+        self.assertEqual(choose.call_args.kwargs["shortcuts"], {"o": 0, "c": 1, "d": 2})
+
+    def test_runner_picker_colors_shortcut_with_date_and_runner_with_runner_color(self) -> None:
+        class Screen:
+            def getmaxyx(self):
+                return (24, 80)
+
+            def touchwin(self):
+                pass
+
+            def refresh(self):
+                pass
+
+        class Popup:
+            def __init__(self):
+                self.drawn = []
+
+            def keypad(self, enabled):
+                pass
+
+            def erase(self):
+                pass
+
+            def box(self):
+                pass
+
+            def addnstr(self, y, x, text, width, attr=0):
+                self.drawn.append((y, x, text, attr))
+
+            def refresh(self):
+                pass
+
+            def getch(self):
+                return 10
+
+        app = object.__new__(SessionApp)
+        app.stdscr = Screen()
+        app.color_pairs = {"description": 20, "runner": 30}
+        popup = Popup()
+        with patch("session_manager.tui.curses.newwin", return_value=popup):
+            self.assertEqual(
+                app._choose_option(
+                    "New session",
+                    ["[o] omp"],
+                    shortcuts={"o": 0},
+                    option_colors={0: ((0, 3, "description"), (3, 4, None), (4, 7, "runner"))},
+                ),
+                0,
+            )
+
+        colored = {(x, text): attr for _, x, text, attr in popup.drawn}
+        self.assertEqual(colored[(2, "[o]")], 20 | curses.A_REVERSE)
+        self.assertEqual(colored[(6, "omp")], 30 | curses.A_REVERSE)
+        self.assertEqual(colored[(5, " ")], 0)
+
+    def test_option_picker_shortcut_selects_immediately_and_keeps_navigation(self) -> None:
+        class Screen:
+            def getmaxyx(self):
+                return (24, 80)
+
+            def touchwin(self):
+                pass
+
+            def refresh(self):
+                pass
+
+        class Popup:
+            def __init__(self, key):
+                self.key = key
+
+            def keypad(self, enabled):
+                pass
+
+            def erase(self):
+                pass
+
+            def box(self):
+                pass
+
+            def refresh(self):
+                pass
+
+            def addnstr(self, y, x, text, width, attr=0):
+                pass
+
+            def getch(self):
+                return self.key
+
+        app = object.__new__(SessionApp)
+        app.stdscr = Screen()
+        with patch("session_manager.tui.curses.newwin", return_value=Popup(ord("D"))):
+            self.assertEqual(
+                app._choose_option("New session", ["[d] codex"], shortcuts={"d": 0}),
+                0,
+            )
+
+        with patch("session_manager.tui.curses.newwin", return_value=Popup(curses.KEY_DOWN)):
+            # Navigation remains a non-selecting move until Enter.
+            popup = Popup(curses.KEY_DOWN)
+            with patch("session_manager.tui.curses.newwin", return_value=popup):
+                keys = iter((curses.KEY_DOWN, 10))
+                popup.getch = lambda: next(keys)
+                self.assertEqual(
+                    app._choose_option("New session", ["first", "second"]),
+                    1,
+                )
+    def test_custom_workdir_is_created_and_used_by_new_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            app = object.__new__(SessionApp)
+            app.startdir = root
+            app.stdscr = SimpleNamespace()
+            app.message = ""
+            app.message_is_error = False
+            option_count = len(app._workdir_choices())
+            with patch.object(app, "_choose_option", return_value=option_count), patch(
+                "session_manager.tui._read_line", return_value="nested/new-workdir"
+            ):
+                chosen = app._choose_workdir()
+
+            self.assertEqual(chosen, root / "nested" / "new-workdir")
+            self.assertTrue(app._prepare_workdir(chosen))
+            self.assertTrue(chosen.is_dir())
+
+    def test_custom_workdir_cancels_empty_and_rejects_escape_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as outside:
+            root = Path(directory).resolve()
+            outside_path = Path(outside).resolve()
+            (root / "escape").symlink_to(outside_path, target_is_directory=True)
+            app = object.__new__(SessionApp)
+            app.startdir = root
+            app.stdscr = SimpleNamespace()
+            app.message = ""
+            app.message_is_error = False
+            option_count = len(app._workdir_choices())
+
+            for value in ("", None):
+                with self.subTest(value=value), patch.object(
+                    app, "_choose_option", return_value=option_count
+                ), patch("session_manager.tui._read_line", return_value=value):
+                    self.assertIsNone(app._choose_workdir())
+
+            for value in ("/tmp/absolute", "../outside", "escape/new"):
+                with self.subTest(value=value), patch.object(
+                    app, "_choose_option", return_value=option_count
+                ), patch("session_manager.tui._read_line", return_value=value):
+                    self.assertIsNone(app._choose_workdir())
+                    self.assertTrue(app.message_is_error)
+            self.assertEqual(list(outside_path.iterdir()), [])
+
+    def test_custom_workdir_existing_directory_and_prepare_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            existing = root / "existing"
+            existing.mkdir()
+            app = object.__new__(SessionApp)
+            app.startdir = root
+            app.stdscr = SimpleNamespace()
+            app.message = ""
+            app.message_is_error = False
+            option_count = len(app._workdir_choices())
+            with patch.object(app, "_choose_option", return_value=option_count), patch(
+                "session_manager.tui._read_line", return_value="existing"
+            ):
+                self.assertEqual(app._choose_workdir(), existing)
+            self.assertTrue(app._prepare_workdir(existing))
+
+            file_path = root / "file"
+            file_path.write_text("not a directory", encoding="utf-8")
+            self.assertFalse(app._prepare_workdir(file_path))
+            self.assertTrue(app.message_is_error)
+
+            inaccessible = root / "inaccessible"
+            inaccessible.mkdir()
+            with patch("session_manager.tui.os.access", return_value=False):
+                self.assertFalse(app._prepare_workdir(inaccessible))
+            self.assertIn("workdir unavailable", app.message)
+            with patch.object(Path, "mkdir", side_effect=PermissionError("creation denied")):
+                self.assertFalse(app._prepare_workdir(root / "cannot-create"))
+            self.assertIn("creation denied", app.message)
 
     def test_start_directory_prefers_launcher_start_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -526,6 +729,7 @@ class SessionManagerTests(unittest.TestCase):
             app.throwaway_visible = set()
             app.message = ""
             app.message_is_error = False
+            chosen = root / "nested" / "new-workdir"
             order: list[str] = []
 
             with patch("session_manager.tui.available_harnesses", return_value=("omp",)):
@@ -534,7 +738,7 @@ class SessionManagerTests(unittest.TestCase):
                     side_effect=lambda harnesses: order.append("runner") or "omp",
                 ), patch.object(
                     app, "_choose_workdir",
-                    side_effect=lambda: order.append("workdir") or root / "internet_search",
+                    side_effect=lambda: order.append("workdir") or chosen,
                 ), patch.object(
                     app, "_launch_selected",
                     side_effect=lambda: order.append("launch"),
@@ -543,10 +747,11 @@ class SessionManagerTests(unittest.TestCase):
 
             self.assertEqual(order, ["runner", "workdir", "launch"])
             self.assertEqual(len(document.entries), 1)
-            self.assertEqual(app.new_session_workdirs[id(document.entries[0])], root / "internet_search")
+            self.assertEqual(app.new_session_workdirs[id(document.entries[0])], chosen)
+            self.assertTrue(chosen.is_dir())
             self.assertEqual(
                 document.entries[0].description,
-                "internet_search: New omp session",
+                "new-workdir: New omp session",
             )
 
             document.ephemeral.clear()

@@ -99,6 +99,16 @@ instance of `Runner` with an implemented `discover()` method.
   is checked afresh for automatic discovery and new-session choices. Unavailable
   runners still parse stored commands and support explicit runner discovery.
 
+- `new_session_key: str | None = None`: optionally suggest one lowercase ASCII
+  letter for immediate selection in the New session picker. A declaration other
+  than `None` or exactly one lowercase ASCII letter is a plugin contract error.
+  Suggestions are assigned in displayed runner order; the first runner keeps a
+  key and later collisions fall back to the first unused lowercase letter in the
+  executable basename from `new_session_command()`. If none is available, the
+  canonical `name` is scanned the same way; a runner with no unused letter has
+  no shortcut. Keys are unique, case-insensitive at input, and displayed beside
+  their runner. The same executable/name fallback applies when no key is declared.
+
 Cursor is a built-in example of executable aliases: its canonical name is
 `cursor-agent`, its `command_names` are `('cursor-agent', 'agent')`, and its
 availability override accepts either executable. Generated new/resume commands

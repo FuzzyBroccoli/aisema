@@ -52,6 +52,13 @@ class RunnerRegistry:
         for command in commands:
             if command in self._by_command:
                 fail(f"executable already owned: {command}")
+        shortcut = getattr(runner, "new_session_key", None)
+        if shortcut is not None and (
+            not isinstance(shortcut, str)
+            or len(shortcut) != 1
+            or shortcut not in "abcdefghijklmnopqrstuvwxyz"
+        ):
+            fail("new_session_key must be None or one lowercase ASCII letter")
         try:
             new_command = runner.new_session_command()
         except Exception as exc:

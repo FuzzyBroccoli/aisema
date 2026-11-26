@@ -25,6 +25,7 @@ class CursorAgentRunner(Runner):
     name = 'cursor-agent'
     command_names = ('cursor-agent', 'agent')
     order = 2
+    new_session_key = "c"
 
     def is_available(self) -> bool:
         return any(shutil.which(name) is not None for name in self.command_names)

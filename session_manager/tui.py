@@ -700,7 +700,12 @@ class SessionApp:
         return ordered
 
     def _choose_option(
-        self, title: str, options: list[str], selected: int = 0
+        self,
+        title: str,
+        options: list[str],
+        selected: int = 0,
+        shortcuts: Optional[dict[str, int]] = None,
+        option_colors: Optional[dict[int, tuple[tuple[int, int, Optional[str]], ...]]] = None,
     ) -> Optional[int]:
         if not options:
             return None
@@ -731,8 +736,26 @@ class SessionApp:
                     index = first + offset
                     attr = curses.A_REVERSE if index == selected else 0
                     _safe_addstr(popup, 1 + offset, 2, option, max(1, popup_width - 4), attr)
+                    for start, end, role in (option_colors or {}).get(index, ()):
+                        style = (
+                            self.color_pairs.get(role, 0) | attr
+                            if role is not None
+                            else 0
+                        )
+                        _safe_addstr(
+                            popup,
+                            1 + offset,
+                            2 + start,
+                            option[start:end],
+                            max(0, popup_width - 4 - start),
+                            style,
+                        )
                 popup.refresh()
                 key = popup.getch()
+                if shortcuts and 0 <= key < 128:
+                    shortcut_index = shortcuts.get(chr(key).lower())
+                    if shortcut_index is not None:
+                        return shortcut_index
                 if key in (ord("q"), ord("Q"), 27):
                     return None
                 if key == curses.KEY_UP:
@@ -755,8 +778,81 @@ class SessionApp:
             self.stdscr.refresh()
 
     def _choose_harness(self, harnesses: list[str]) -> Optional[str]:
-        selected = self._choose_option("New session", harnesses)
+        assigned: dict[str, int] = {}
+        keys: list[Optional[str]] = [None] * len(harnesses)
+
+        def unused_letter(text: str) -> Optional[str]:
+            return next(
+                (character for character in text.lower() if character in "abcdefghijklmnopqrstuvwxyz" and character not in assigned),
+                None,
+            )
+
+        registry = get_registry()
+        for index, name in enumerate(harnesses):
+            runner = registry.get(name)
+            if runner is None:
+                continue
+            suggestion = runner.new_session_key
+            key = suggestion if suggestion is not None and suggestion not in assigned else None
+            if key is None:
+                executable = os.path.basename(runner.new_session_command().split()[0])
+                key = unused_letter(executable)
+            if key is None:
+                key = unused_letter(runner.name)
+            if key is not None:
+                keys[index] = key
+                assigned[key] = index
+
+        options = []
+        option_colors: dict[int, tuple[tuple[int, int, Optional[str]], ...]] = {}
+        for index, (name, key) in enumerate(zip(harnesses, keys)):
+            options.append(f"[{key}] {name}" if key is not None else name)
+            spans: list[tuple[int, int, Optional[str]]] = []
+            if key is not None:
+                spans.extend(((0, 3, "description"), (3, 4, None), (4, 4 + len(name), "runner")))
+            else:
+                spans.append((0, len(name), "runner"))
+            option_colors[index] = tuple(spans)
+        shortcuts = {key: index for index, key in enumerate(keys) if key is not None}
+        selected = self._choose_option(
+            "New session", options, shortcuts=shortcuts, option_colors=option_colors
+        )
         return harnesses[selected] if selected is not None else None
+    def _choose_workdir(self) -> Optional[Path]:
+        choices = self._workdir_choices()
+        options = [f"{label}: {path}" for label, path in choices]
+        options.append("other: type new workdir")
+        selected = self._choose_option("New session workdir", options)
+        if selected is None:
+            return None
+        if selected < len(choices):
+            return choices[selected][1]
+
+        typed = _read_line(self.stdscr, "Relative workdir (under startdir): ")
+        if not typed:
+            return None
+        path = Path(typed)
+        startdir = self.startdir.resolve()
+        try:
+            if path.is_absolute():
+                raise ValueError("path must be relative")
+            resolved = (startdir / path).resolve()
+            if not resolved.is_relative_to(startdir):
+                raise ValueError("path must stay under startdir")
+            return resolved
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._set_message(f"workdir unavailable: {exc}", True)
+            return None
+
+    def _prepare_workdir(self, cwd: Path) -> bool:
+        try:
+            cwd.mkdir(parents=True, exist_ok=True)
+            if not cwd.is_dir() or not os.access(cwd, os.X_OK):
+                raise PermissionError(f"cannot access {cwd}")
+        except OSError as exc:
+            self._set_message(f"workdir unavailable: {exc}", True)
+            return False
+        return True
 
     def _workdir_choices(self) -> list[tuple[str, Path]]:
         startdir = self.startdir.resolve()
@@ -804,26 +900,6 @@ class SessionApp:
             add("aisema program dir", program_dir)
         return choices
 
-    def _choose_workdir(self) -> Optional[Path]:
-        choices = self._workdir_choices()
-        options = [f"{label}: {path}" for label, path in choices]
-        selected = self._choose_option("New session workdir", options)
-        return choices[selected][1] if selected is not None else None
-
-    def _prepare_workdir(self, cwd: Path) -> bool:
-        try:
-            fixed = {
-                (self.startdir / "internet_search").resolve(),
-                (self.startdir / "temp_dir").resolve(),
-            }
-            if cwd in fixed:
-                cwd.mkdir(parents=True, exist_ok=True)
-            if not cwd.is_dir() or not os.access(cwd, os.X_OK):
-                raise PermissionError(f"cannot access {cwd}")
-        except OSError as exc:
-            self._set_message(f"workdir unavailable: {exc}", True)
-            return False
-        return True
 
     def _choose_sort_mode(self) -> Optional[tuple[str, str]]:
         layer = "second"

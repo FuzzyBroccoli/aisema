@@ -136,6 +136,7 @@ class OmpRunner(Runner):
     name = "omp"
     command_names = ("omp",)
     order = 4
+    new_session_key = "o"
 
     def native_fork(self, session_id: str) -> NativeFork:
         if has_option(command_help("omp"), "--fork"):

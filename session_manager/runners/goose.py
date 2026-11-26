@@ -43,6 +43,7 @@ class GooseRunner(Runner):
     name = "goose"
     command_names = ("goose",)
     order = 5
+    new_session_key = "g"
 
     def resume_command(self, session_id: str) -> str:
         return f"goose session resume --name {session_id}"

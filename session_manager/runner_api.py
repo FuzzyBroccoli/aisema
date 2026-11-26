@@ -94,6 +94,7 @@ class Runner(ABC):
     command_names: tuple[str, ...]
     order: int = 100
     hidden_when_available: tuple[str, ...] = ()
+    new_session_key: str | None = None
 
     def is_available(self) -> bool:
         return shutil.which(self.command_names[0]) is not None

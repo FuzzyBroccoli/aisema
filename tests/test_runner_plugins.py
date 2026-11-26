@@ -230,6 +230,8 @@ class RunnerPluginTests(unittest.TestCase):
             (PLUGIN_SOURCE.replace('name = "harri"', 'name = "copilot"'), "copilot"),
             (PLUGIN_SOURCE.replace('("harri-cli",)', '("copilot",)').replace(
                 'return "harri-cli start"', 'return "copilot start"'), "copilot"),
+            (PLUGIN_SOURCE.replace("name = \"harri\"", "name = \"harri\"\n    new_session_key = \"A\""), "new_session_key"),
+            (PLUGIN_SOURCE.replace("name = \"harri\"", "name = \"harri\"\n    new_session_key = \"ab\""), "new_session_key"),
         ]
         for source, reason in variants:
             with self.subTest(reason=reason):
